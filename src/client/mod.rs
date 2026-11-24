@@ -816,15 +816,24 @@ impl Client {
         }
     }
 
-    /// Performs a fetch and returns the database response.
+    /// Performs a fetch and returns the database response. The first fetch of
+    /// a cursor that still requires a define (a REF CURSOR or nested cursor
+    /// with LOB columns) sends the define with it.
     pub(crate) fn fetch(
         &mut self,
         statement: &mut CachedStatement,
         client_ref: &ClientRef,
         last_row: Option<DbRow>,
     ) -> Result<Response, Error> {
-        let mut message = FetchMessage::new(statement, last_row);
-        let mut response = self.process_message(&mut message)?;
+        let mut response = if statement.requires_define() {
+            let mut message = ExecuteMessage::new_define_fetch(statement);
+            let response = self.process_message(&mut message)?;
+            statement.clear_requires_define();
+            response
+        } else {
+            let mut message = FetchMessage::new(statement, last_row);
+            self.process_message(&mut message)?
+        };
         response.complete_values(self, client_ref, statement)?;
         Ok(response)
     }
