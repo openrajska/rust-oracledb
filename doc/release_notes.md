@@ -24,6 +24,10 @@
 1.  Use `debug_struct()` for `Error` so that the cause is not lost when
     debugging errors
     ([issue 76](https://github.com/oracle/rust-oracledb/issues/76)).
+1.  Added
+    [PoolConfig::set_transport_connect_timeout()](crate::PoolConfig::set_transport_connect_timeout())
+    so that connections created by a pool can be given a transport connect
+    timeout, as is already possible for standalone connections.
 
 
 ## rust-oracledb 26.0.0-beta.6 (November 12, 2026)

@@ -288,6 +288,19 @@ impl PoolConfig {
         self
     }
 
+    /// Sets the default transport connect timeout to use when the pool
+    /// establishes a connection to the database. If a value is specified in
+    /// the description portion of a connect string, that value takes
+    /// precedence.
+    pub fn set_transport_connect_timeout(
+        mut self,
+        value: Option<Duration>,
+    ) -> Self {
+        self.connection_config =
+            self.connection_config.set_transport_connect_timeout(value);
+        self
+    }
+
     /// Sets the user to use when connecting to the database. If the user is in
     /// the form "user\[proxy_user\]", the proxy_user portion is saved
     /// separately.  If the proxy_user is empty or one of the opening or
@@ -324,6 +337,14 @@ impl PoolConfig {
     /// "unknown".
     pub fn terminal(&self) -> &str {
         self.connection_config.terminal()
+    }
+
+    /// Returns the default transport connect timeout that will be used when
+    /// the pool establishes a connection to the database. If a value is
+    /// specified in the description portion of a connect string, that value
+    /// takes precedence.
+    pub fn transport_connect_timeout(&self) -> Option<Duration> {
+        self.connection_config.transport_connect_timeout()
     }
 
     /// Returns the user associated with the configuration.
