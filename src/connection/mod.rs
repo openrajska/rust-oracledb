@@ -384,6 +384,13 @@ impl Connection {
         Ok(self.get_impl()?.statement(sql))
     }
 
+    /// Returns whether a transaction is in progress on the connection, as the
+    /// database reported it at the end of the last round trip. A connection
+    /// with no transaction in progress has nothing to commit or roll back.
+    pub fn transaction_in_progress(&self) -> Result<bool, Error> {
+        self.get_impl()?.get_transaction_in_progress()
+    }
+
     /// Returns the version of the database.
     pub fn version(&self) -> Result<OracleVersion, Error> {
         Ok(self.get_impl()?.get_server_version())

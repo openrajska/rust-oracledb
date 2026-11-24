@@ -230,8 +230,11 @@ impl Client {
             response.add_packets_after_flush(self.receive_packets()?);
             message.deserialize(self, response)?;
         }
-        message.post_deserialize(self, response)?;
+        // a call that fails reports its call status too: a failed commit,
+        // for example, has ended the transaction
+        let result = message.post_deserialize(self, response);
         self.process_call_status(response.call_status());
+        result?;
         if let Some(warning) = response.warning() {
             self.last_warning = Some(warning.to_string());
         }
@@ -1135,6 +1138,12 @@ impl Client {
     /// Returns whether the database supports the "end of response" flag.
     pub(crate) fn supports_end_of_response(&self) -> bool {
         self.caps.supports_end_of_response()
+    }
+
+    /// Returns whether a transaction is in progress, as the database reported
+    /// it in the call status of the last response.
+    pub(crate) fn transaction_in_progress(&self) -> bool {
+        self.transaction_in_progress
     }
 
     /// Returns whether the client supports a particular TTC field version.
