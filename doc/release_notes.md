@@ -24,6 +24,11 @@
 1.  Use `debug_struct()` for `Error` so that the cause is not lost when
     debugging errors
     ([issue 76](https://github.com/oracle/rust-oracledb/issues/76)).
+1.  Added
+    [StatementBuilder::autocommit()](crate::StatementBuilder::autocommit())
+    so that each successful execution of a statement commits in the same
+    round trip, without a separate call to
+    [Connection::commit()](crate::Connection::commit()).
 
 
 ## rust-oracledb 26.0.0-beta.6 (November 12, 2026)

@@ -330,7 +330,7 @@ pub const TTC_LOB_LOC_FLAGS_VAR_LENGTH_CHARSET: u8 = 0x80;
 pub const TTC_LOB_LOC_FLAGS_LITTLE_ENDIAN: u8 = 0x40;
 
 // TTC re-execute options
-pub const _TTC_REEXEC_OPTION_COMMIT: u32 = 0x1;
+pub const TTC_REEXEC_OPTION_COMMIT: u32 = 0x1;
 
 // TTC keyword numbers
 pub const TTC_KEYWORD_NUM_CURRENT_SCHEMA: u16 = 168;
