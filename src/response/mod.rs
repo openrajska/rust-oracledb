@@ -631,9 +631,14 @@ impl Response {
         self.rows.take()
     }
 
-    /// Takes the warning from the response and returns them.
+    /// Takes the warning from the response and returns it.
     pub(crate) fn take_warning(&mut self) -> Option<String> {
         self.warning.take()
+    }
+
+    /// Returns the warning in the response, if any.
+    pub(crate) fn warning(&self) -> Option<&str> {
+        self.warning.as_deref()
     }
 
     /// Transfers information from another response that was received earlier.
@@ -650,6 +655,9 @@ impl Response {
             std::mem::take(&mut other_resp.pending_values);
         pending_values.append(&mut self.pending_values);
         self.pending_values = pending_values;
+        if self.warning.is_none() {
+            self.warning = other_resp.take_warning();
+        }
         if let Some(error_info) = self.error_info.as_mut()
             && let Some(other_error_info) = other_resp.error_info.as_mut()
         {

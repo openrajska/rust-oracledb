@@ -44,6 +44,7 @@ pub struct ExecResult {
     out_bind_data: Option<DbRow>,
     returned_data: Option<Vec<DbRow>>,
     rows_affected: u64,
+    warning: Option<String>,
 }
 
 impl ExecResult {
@@ -68,12 +69,24 @@ impl ExecResult {
             out_bind_data,
             returned_data,
             rows_affected: resp.get_rowcount(),
+            warning: resp.take_warning(),
         }
     }
 
     /// Returns the number of rows affected by the execution of the statement.
     pub fn rows_affected(&self) -> u64 {
         self.rows_affected
+    }
+
+    /// Returns the warning that the database returned for this execution
+    /// (success with info, such as a PL/SQL unit created with compilation
+    /// errors), or None if it returned none. Unlike
+    /// [Connection::last_warning()](crate::Connection::last_warning()),
+    /// which keeps the last warning returned on the connection until it is
+    /// closed, this only reports what this execution returned, so the same
+    /// warning returned by two executions in a row is reported by both.
+    pub fn warning(&self) -> Option<&str> {
+        self.warning.as_deref()
     }
 
     /// Returns data returned by the database as OUT variables for PL/SQL. This
@@ -106,6 +119,7 @@ pub struct ExecBatchResult {
     returned_data: Option<Vec<Vec<DbRow>>>,
     num_execs: usize,
     rows_affected: u64,
+    warning: Option<String>,
 }
 
 impl ExecBatchResult {
@@ -133,12 +147,19 @@ impl ExecBatchResult {
             returned_data,
             num_execs,
             rows_affected: resp.get_rowcount(),
+            warning: resp.take_warning(),
         }
     }
 
     /// Returns the number of rows affected by the execution of the statement.
     pub fn rows_affected(&self) -> u64 {
         self.rows_affected
+    }
+
+    /// Returns the warning that the database returned for these executions,
+    /// or None if it returned none. See [ExecResult::warning()].
+    pub fn warning(&self) -> Option<&str> {
+        self.warning.as_deref()
     }
 
     /// Returns data returned by the database as OUT variables in PL/SQL. This

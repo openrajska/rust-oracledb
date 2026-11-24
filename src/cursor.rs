@@ -48,6 +48,7 @@ pub struct Cursor {
     rows: VecDeque<DbRow>,
     last_row: Option<DbRow>,
     end_of_fetch: bool,
+    warning: Option<String>,
 }
 
 impl Cursor {
@@ -84,13 +85,18 @@ impl Cursor {
             rows: VecDeque::<DbRow>::new(),
             last_row: None,
             end_of_fetch: false,
+            warning: None,
         }
     }
 
     /// Sets the state of the cursor from the initial database response.
-    pub(crate) fn set_from_initial_response(&mut self, response: Response) {
+    pub(crate) fn set_from_initial_response(
+        &mut self,
+        mut response: Response,
+    ) {
         self.rows.clear();
         self.last_row = None;
+        self.warning = response.take_warning();
         self.set_from_response(response);
     }
 
@@ -103,6 +109,13 @@ impl Cursor {
     /// Returns the sql associated with the cursor.
     pub fn sql(&self) -> &str {
         self.statement.sql()
+    }
+
+    /// Returns the warning that the database returned for the execution of
+    /// the query, or None if it returned none. See
+    /// [ExecResult::warning()](crate::ExecResult::warning()).
+    pub fn warning(&self) -> Option<&str> {
+        self.warning.as_deref()
     }
 }
 

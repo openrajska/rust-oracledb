@@ -186,7 +186,11 @@ impl Connection {
         Ok(self.get_impl()?.get_instance_name())
     }
 
-    /// Returns the last warning that was returned by the database.
+    /// Returns the last warning that was returned by the database. It is kept
+    /// until the connection is closed or returned to its pool, so it may come
+    /// from an earlier execution: use
+    /// [ExecResult::warning()](crate::ExecResult::warning()) for the warning
+    /// of one execution.
     pub fn last_warning(&self) -> Result<Option<String>, Error> {
         Ok(self.get_impl()?.get_last_warning())
     }
