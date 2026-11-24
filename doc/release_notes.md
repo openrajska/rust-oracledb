@@ -24,6 +24,13 @@
 1.  Use `debug_struct()` for `Error` so that the cause is not lost when
     debugging errors
     ([issue 76](https://github.com/oracle/rust-oracledb/issues/76)).
+1.  Added [Connection::transaction_in_progress()](crate::Connection::transaction_in_progress())
+    which returns whether a transaction is in progress, as the database
+    reported it at the end of the last round trip.
+1.  Fixed bug where the transaction state was not updated when a call failed,
+    so that after a failed commit the connection still reported a transaction
+    in progress and a needless rollback was sent when it was released to its
+    pool.
 
 
 ## rust-oracledb 26.0.0-beta.6 (November 12, 2026)

@@ -238,6 +238,11 @@ impl ConnImpl {
         self.db_info.get_session_id()
     }
 
+    /// Returns whether a transaction is in progress on the connection.
+    pub fn get_transaction_in_progress(&self) -> Result<bool, Error> {
+        Ok(self.client_ref.lock()?.transaction_in_progress())
+    }
+
     /// Pings the database.
     pub fn ping(&self) -> Result<(), Error> {
         self.client_ref.lock()?.ping()
