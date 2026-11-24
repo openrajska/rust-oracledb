@@ -24,6 +24,11 @@
 1.  Use `debug_struct()` for `Error` so that the cause is not lost when
     debugging errors
     ([issue 76](https://github.com/oracle/rust-oracledb/issues/76)).
+1.  Added [ExecResult::warning()](crate::ExecResult::warning()),
+    [ExecBatchResult::warning()](crate::ExecBatchResult::warning()) and
+    [Cursor::warning()](crate::Cursor::warning()), which return the warning
+    of that execution only, unlike
+    [Connection::last_warning()](crate::Connection::last_warning()).
 
 
 ## rust-oracledb 26.0.0-beta.6 (November 12, 2026)
