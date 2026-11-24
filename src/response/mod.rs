@@ -372,7 +372,16 @@ impl Response {
             let mut values = values.into_iter();
             for row in self.rows.as_mut().unwrap() {
                 for column_num in &column_nums {
-                    if let Some(data) = values.next().unwrap() {
+                    // DML RETURNING binds hold one value per returned row
+                    if metadata[*column_num].is_array() {
+                        row.finalize_array_column(
+                            *column_num,
+                            client,
+                            client_ref,
+                            &mut values,
+                            &metadata[*column_num],
+                        )?;
+                    } else if let Some(data) = values.next().unwrap() {
                         row.finalize_column(
                             *column_num,
                             client,
