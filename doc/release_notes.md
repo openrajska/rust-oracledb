@@ -24,6 +24,16 @@
 1.  Use `debug_struct()` for `Error` so that the cause is not lost when
     debugging errors
     ([issue 76](https://github.com/oracle/rust-oracledb/issues/76)).
+1.  Fetched TIMESTAMP WITH TIME ZONE values now keep the offset of their time
+    zone, returned by
+    [OracleTimestamp::tz_hour_offset()](crate::OracleTimestamp::tz_hour_offset())
+    and
+    [OracleTimestamp::tz_minute_offset()](crate::OracleTimestamp::tz_minute_offset()),
+    and an offset set with
+    [OracleTimestamp::with_tz_offset()](crate::OracleTimestamp::with_tz_offset())
+    is sent when the value is bound, also inside JSON. The date and time remain
+    in UTC. Values stored with a time zone region name are still returned in
+    UTC with an offset of zero.
 
 
 ## rust-oracledb 26.0.0-beta.6 (November 12, 2026)
