@@ -201,7 +201,7 @@ impl Client {
                 self.receive_data_packet()?;
             let wait_for_more = check_end_of_response
                 && supports_end_of_response
-                && !packet.has_end_of_response();
+                && !packet.has_end_of_response(packets.is_empty());
             packets.push(packet);
             if !wait_for_more {
                 break;

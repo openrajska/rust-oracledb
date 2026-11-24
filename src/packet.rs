@@ -39,21 +39,24 @@ pub(crate) struct Packet {
 
 impl Packet {
     /// Returns a boolean indicating if the packet contains the end of response
-    /// marker. When the server sends a renegotiation request, however, the end
-    /// of response marker is not sent so this must be caught separately.
-    pub(crate) fn has_end_of_response(&self) -> bool {
-        if self.packet_type != constants::PACKET_TYPE_DATA
+    /// marker: in its data flags, or as a packet holding that message type
+    /// alone. When the server sends a renegotiation request, however, the end
+    /// of response marker is not sent so this must be caught separately: as
+    /// the first message of the first packet of the response (`first`).
+    ///
+    /// The bytes of any other data packet are never taken for the marker: a
+    /// packet of row or LOB data may well end with the end of response message
+    /// type, or start with the renegotiation one, and taking it for the end
+    /// would make the client assemble and parse the response again for each
+    /// such packet.
+    pub(crate) fn has_end_of_response(&self, first: bool) -> bool {
+        self.packet_type != constants::PACKET_TYPE_DATA
             || self.data_flags & constants::TTC_DATA_FLAGS_END_OF_RESPONSE != 0
             || self.data_flags & constants::TTC_DATA_FLAGS_EOF != 0
-            || (self.buf.len() > 1
+            || self.buf == [constants::TTC_MSG_TYPE_END_OF_RESPONSE]
+            || (first
+                && self.buf.len() > 1
                 && self.buf[0] == constants::TTC_MSG_TYPE_RENEGOTIATE)
-        {
-            true
-        } else if let Some(last_byte) = self.buf.last() {
-            *last_byte == constants::TTC_MSG_TYPE_END_OF_RESPONSE
-        } else {
-            false
-        }
     }
 
     /// Returns a boolean indicating if the packet refers to a marker packet

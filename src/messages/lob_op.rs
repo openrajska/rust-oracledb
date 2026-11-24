@@ -237,8 +237,9 @@ impl Message for LobOpMessage<'_> {
         _client: &Client,
         resp: &mut Response,
     ) -> Result<(), Error> {
-        let bytes = resp.read_bytes_with_length()?;
-        self.data.extend_from_slice(&bytes);
+        // A response holds one LOB data message: taking its bytes avoids a
+        // copy, and a response parsed again keeps them once.
+        self.data = resp.read_bytes_with_length()?.into_owned();
         Ok(())
     }
 
