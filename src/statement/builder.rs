@@ -66,6 +66,21 @@ impl<'sql> StatementBuilder<'sql> {
         self
     }
 
+    /// Specifies that executing a DML statement (INSERT, UPDATE, DELETE or
+    /// MERGE) with
+    /// [Statement::execute_batch()](crate::Statement::execute_batch()) runs
+    /// every row, even after one of them fails, and returns the errors of the
+    /// failing rows in
+    /// [ExecBatchResult::batch_errors()](crate::ExecBatchResult::batch_errors())
+    /// instead of returning the first one as an error. The rows that succeed
+    /// stay applied in the transaction. Other statements, and
+    /// [Statement::execute()](crate::Statement::execute()), still return the
+    /// first error as an error.
+    pub fn batch_errors(mut self) -> Self {
+        self.options.set_batch_errors();
+        self
+    }
+
     /// Builds the statement from the SQL and the options.
     pub fn build(self) -> Result<Statement, Error> {
         let statement = {

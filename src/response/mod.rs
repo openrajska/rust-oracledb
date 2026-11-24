@@ -120,6 +120,18 @@ impl Response {
         self.flush_out_binds = false;
     }
 
+    /// Adds the packets of the response that follows a flush of out binds.
+    /// The rows read before the flush (the data returned by the iterations of
+    /// a DML RETURNING batch that ran before a batch error) are kept, and the
+    /// rows of the new packets are added after them.
+    pub(crate) fn add_packets_after_flush(&mut self, packets: Vec<Packet>) {
+        let rows = self.rows.take();
+        let pending_values = std::mem::take(&mut self.pending_values);
+        self.add_packets(packets);
+        self.rows = rows;
+        self.pending_values = pending_values;
+    }
+
     /// Records one pending value position while deserializing rows.
     pub(crate) fn add_pending_db_value(
         &mut self,
@@ -146,17 +158,28 @@ impl Response {
     /// Checks to see if any error has taken place after executing a statement
     /// or fetching rows from a cursor, and if so, returns it. The error "no
     /// data found" when found for a query is ignored and the end of fetch
-    /// marker is set instead.
+    /// marker is set instead. The error "error(s) in array DML", which comes
+    /// with batch errors, is ignored too: the errors of the rows are returned
+    /// by take_batch_errors(), unless more rows failed than the server can
+    /// return the errors of.
     pub(crate) fn check_for_statement_error(
         &mut self,
         client: &mut Client,
         statement: &mut CachedStatement,
     ) -> Result<(), Error> {
+        if let Some(num_errors) =
+            self.error_info.as_ref().and_then(|i| i.too_many_batch_errors())
+        {
+            return Err(Error::too_many_batch_errors(num_errors));
+        }
         if let Some(db_error) = self.take_db_error() {
             if statement.is_query()
                 && db_error.code() == constants::DB_ERR_NUM_NO_DATA_FOUND
             {
                 self.end_of_fetch = true;
+                Ok(())
+            } else if db_error.code() == constants::DB_ERR_NUM_ARRAY_DML_ERRORS
+            {
                 Ok(())
             } else {
                 if db_error.should_close_cursor() {
@@ -624,6 +647,15 @@ impl Response {
 
     pub(crate) fn set_num_columns(&mut self, num_columns: usize) {
         self.num_columns = num_columns;
+    }
+
+    /// Takes the errors of the rows of a batch executed with batch errors
+    /// enabled and returns them.
+    pub(crate) fn take_batch_errors(&mut self) -> Vec<DbError> {
+        self.error_info
+            .as_mut()
+            .map(|i| i.take_batch_errors())
+            .unwrap_or_default()
     }
 
     /// Takes the rows from the response and returns them.

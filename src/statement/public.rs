@@ -140,11 +140,26 @@ impl Statement {
         let params: BindParameters = binding.as_slice().into();
         self.statement.check_binds(&params)?;
         let mut response = self.get_execute_response(params, false)?;
+        Self::check_for_batch_error(&mut response)?;
         Ok(ExecResult::new(&self.statement, &mut response))
     }
 
+    /// Returns the error of the row as an error when a statement built with
+    /// batch errors is executed with execute() or execute_named(), which have
+    /// no batch errors to report it in.
+    fn check_for_batch_error(response: &mut Response) -> Result<(), Error> {
+        match response.take_batch_errors().into_iter().next() {
+            Some(db_error) => Err(Error::db_error(db_error)),
+            None => Ok(()),
+        }
+    }
+
     /// Executes a SQL statement against the database multiple times in one
-    /// round trip.
+    /// round trip. When the statement was built with
+    /// [StatementBuilder::batch_errors()](crate::StatementBuilder::batch_errors())
+    /// and is DML, the rows that fail do not stop the batch: their errors are
+    /// returned by
+    /// [ExecBatchResult::batch_errors()](crate::ExecBatchResult::batch_errors()).
     pub fn execute_batch(
         &mut self,
         params: BindParameters,
@@ -167,6 +182,7 @@ impl Statement {
         let params: BindParameters = binding.as_slice().into();
         self.statement.check_binds(&params)?;
         let mut response = self.get_execute_response(params, false)?;
+        Self::check_for_batch_error(&mut response)?;
         Ok(ExecResult::new(&self.statement, &mut response))
     }
 

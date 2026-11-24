@@ -291,10 +291,15 @@ impl ExecuteMessage<'_, '_> {
         params: BindParameters<'params>,
         parse_only: bool,
     ) -> ExecuteMessage<'statement, 'params> {
+        // batch errors apply only to DML; other statements stop at the first
+        // error as usual
+        let batch_errors = statement.options().batch_errors()
+            && statement.is_dml()
+            && !parse_only;
         ExecuteMessage {
             parse_only,
             scroll_operation: false,
-            batch_errors: false,
+            batch_errors,
             array_dml_row_counts: false,
             renegotiation_needed: false,
             num_execs: params.num_rows().try_into().unwrap(),
@@ -417,12 +422,14 @@ impl Message for ExecuteMessage<'_, '_> {
     }
 
     fn serialize(&self, client: &Client, buf: &mut WriteBuffer) {
+        // the re-execute has no option for batch errors
         if !self.statement.has_cursor()
             || self.statement.no_prefetch()
             || self.statement.binds_changed()
             || self.parse_only
             || self.statement.requires_define()
             || self.statement.is_ddl()
+            || self.batch_errors
         {
             self.write_full_execute(client, buf);
         } else {
