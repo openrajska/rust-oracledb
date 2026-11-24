@@ -24,6 +24,10 @@
 1.  Use `debug_struct()` for `Error` so that the cause is not lost when
     debugging errors
     ([issue 76](https://github.com/oracle/rust-oracledb/issues/76)).
+1.  Added [Connection::close_and_drop()](crate::Connection::close_and_drop())
+    which drops a pooled connection from its pool instead of returning it,
+    for connections that must not be reused although their network
+    connection is still open.
 
 
 ## rust-oracledb 26.0.0-beta.6 (November 12, 2026)

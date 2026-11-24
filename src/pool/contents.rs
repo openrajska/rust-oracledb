@@ -247,6 +247,14 @@ impl PoolContents {
         self.free_connections.len() + self.num_being_pinged + self.num_busy
     }
 
+    /// Drops a busy connection from the pool instead of returning it. The
+    /// manager closes it, and the pool may grow again in its place.
+    pub(crate) fn drop_connection(&mut self, conn_impl: ConnImpl) {
+        self.num_busy -= 1;
+        self.connections_requiring_drop.push(conn_impl);
+        self.notify_manager();
+    }
+
     /// Returns a connection to the pool.
     pub(crate) fn return_connection(
         &mut self,
