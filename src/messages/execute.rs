@@ -321,6 +321,32 @@ impl Message for ExecuteMessage<'_, '_> {
         Ok(())
     }
 
+    /// Each implicit result is an opened cursor: a short header that is
+    /// skipped, its describe info and its cursor id. The rows are fetched
+    /// later, like a REF CURSOR.
+    fn deserialize_implicit_results(
+        &mut self,
+        client: &Client,
+        resp: &mut Response,
+    ) -> Result<(), Error> {
+        let num_results = resp.read_ub4()?;
+        for _ in 0..num_results {
+            let num_bytes = resp.read_u8()?;
+            resp.advance(num_bytes.into())?;
+            let mut statement = CachedStatement::create_empty(
+                String::new(),
+                false,
+                self.statement.options(),
+            );
+            statement.populate_from_describe_info(client, resp)?;
+            statement.set_cursor_id(resp.read_ub2()?);
+            resp.add_implicit_result(statement);
+        }
+        // the describe info above resized the bit vector for its columns
+        resp.set_num_columns(self.statement.out_metadata().len());
+        Ok(())
+    }
+
     fn deserialize_io_vector(
         &mut self,
         _client: &Client,
