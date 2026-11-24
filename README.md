@@ -1,5 +1,11 @@
 # rust-oracledb
 
+> [!NOTE]
+> This is the [openrajska](https://github.com/openrajska) fork, pinned to
+> upstream release 26.0.0-beta.6 and carrying patches offered upstream. Read
+> [RAJSKA.md](RAJSKA.md) before changing anything. The upstream project is
+> [oracle/rust-oracledb](https://github.com/oracle/rust-oracledb).
+
 [![crates.io](https://img.shields.io/crates/v/oracledb.svg)](https://crates.io/crates/oracledb)
 [![Documentation](https://docs.rs/oracledb/badge.svg)](https://docs.rs/oracledb)
 [![Rust](https://img.shields.io/badge/rust-1.89.0%2B-blue.svg?maxAge=3600)](https://github.com/rust-lang/oracledb)
