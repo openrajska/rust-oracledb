@@ -401,6 +401,16 @@ impl CachedStatement {
         Ok(())
     }
 
+    /// Requests the LOB prefetch size of the statement's options with the
+    /// LOB locators of its columns, in the define sent with its next
+    /// execution.
+    pub(crate) fn set_lob_prefetch_size(&mut self) {
+        let size = self.options.lob_prefetch_size();
+        for metadata in &mut self.out_metadata {
+            metadata.set_lob_prefetch_size(size);
+        }
+    }
+
     /// Returns whether or not the statement requires a define.
     pub(crate) fn requires_define(&self) -> bool {
         self.requires_define

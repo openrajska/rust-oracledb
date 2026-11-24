@@ -97,6 +97,19 @@ impl<'sql> StatementBuilder<'sql> {
         self
     }
 
+    /// Specifies the LOB prefetch size: how much of each CLOB, NCLOB and BLOB
+    /// fetched as a LOB locator (see [`fetch_lobs`](Self::fetch_lobs)) the
+    /// database returns with the locator, in characters (UCS-2 units) for a
+    /// CLOB or NCLOB and in bytes for a BLOB. Reading a LOB within that data
+    /// needs no round trip, so a LOB no larger than this size is read without
+    /// any. The default is 0: no LOB data is returned with the locator. Only
+    /// the columns of queries are prefetched, not those of REF CURSORs,
+    /// implicit results or OUT binds.
+    pub fn lob_prefetch_size(mut self, value: u32) -> Self {
+        self.options.set_lob_prefetch_size(value);
+        self
+    }
+
     /// Specifies the number of rows that should be fetched when the statement
     /// is executed.
     pub fn prefetch_rows(mut self, value: u32) -> Self {

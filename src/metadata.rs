@@ -72,6 +72,7 @@ pub struct Metadata {
     object_type: Option<MetadataObjectType>,
     domain: Option<(String, String)>,
     annotations: Vec<(String, String)>,
+    lob_prefetch_size: u32,
 }
 
 impl Metadata {
@@ -105,6 +106,7 @@ impl Metadata {
             object_type: None,
             domain: None,
             annotations: Vec::new(),
+            lob_prefetch_size: 0,
         }
     }
 
@@ -142,6 +144,7 @@ impl Metadata {
             object_type: None,
             domain: None,
             annotations: Vec::new(),
+            lob_prefetch_size: 0,
         };
         let ora_type_num: u16 = resp.read_u8()?.into();
         resp.read_u8()?; // flags
@@ -252,6 +255,23 @@ impl Metadata {
         Self::new(name.into(), db_type, max_size, 0, 0, false, false)
     }
 
+    /// Returns the LOB prefetch size requested for this CLOB, NCLOB or BLOB
+    /// column, or 0 when no LOB data is requested with the locator.
+    pub(crate) fn lob_prefetch_size(&self) -> u32 {
+        self.lob_prefetch_size
+    }
+
+    /// Sets the LOB prefetch size to request with the define of a CLOB, NCLOB
+    /// or BLOB column. Other columns are left unchanged.
+    pub(crate) fn set_lob_prefetch_size(&mut self, value: u32) {
+        if matches!(
+            self.db_type.ora_type_num,
+            constants::ORA_TYPE_NUM_BLOB | constants::ORA_TYPE_NUM_CLOB
+        ) {
+            self.lob_prefetch_size = value;
+        }
+    }
+
     /// Returns a boolean indicating if the metadata requires a define. This is
     /// true for all LOBs (including JSON and VECTOR which are value based
     /// LOBs).
@@ -345,8 +365,11 @@ impl Metadata {
         match self.db_type.ora_type_num {
             // For LOB locators the protocol expects the LOB prefetch flag
             // to be set even when no prefetching is requested (length = 0).
+            // The length is in characters for a CLOB / NCLOB, in bytes for a
+            // BLOB.
             constants::ORA_TYPE_NUM_BLOB | constants::ORA_TYPE_NUM_CLOB => {
                 cont_flag = LOB_PREFETCH_FLAG;
+                lob_prefetch_length = self.lob_prefetch_size;
             }
             // For JSON (value-based LOB), this flag is used and the maximum
             // size of JSON (32 MB) is used for the buffer size
