@@ -92,6 +92,7 @@ pub enum ErrorKind {
     StreamOperation,
     TlsOperation,
     TnsAliasNotFound(String, String),
+    TooManyBatchErrors(usize),
     UnableToRecover,
     UnexpectedError,
     UnexpectedNegativeInteger,
@@ -392,6 +393,13 @@ impl fmt::Display for Error {
             ErrorKind::TnsAliasNotFound(file_name, alias) => {
                 write!(fmt, "unable to find \"{}\" in {}", alias, file_name)?
             }
+            ErrorKind::TooManyBatchErrors(num_errors) => write!(
+                fmt,
+                "{} rows of the batch failed, more than the {} batch errors \
+                 that can be returned",
+                num_errors,
+                u16::MAX
+            )?,
             ErrorKind::UnableToRecover => fmt.write_str(
                 "unable to recover from error: connection has been closed",
             )?,
@@ -796,6 +804,10 @@ impl Error {
         alias: String,
     ) -> Error {
         Error::new(ErrorKind::TnsAliasNotFound(file_name, alias), None)
+    }
+
+    pub(crate) fn too_many_batch_errors(num_errors: usize) -> Error {
+        Error::new(ErrorKind::TooManyBatchErrors(num_errors), None)
     }
 
     pub(crate) fn unable_to_recover() -> Error {

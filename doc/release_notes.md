@@ -24,6 +24,18 @@
 1.  Use `debug_struct()` for `Error` so that the cause is not lost when
     debugging errors
     ([issue 76](https://github.com/oracle/rust-oracledb/issues/76)).
+1.  Added
+    [StatementBuilder::batch_errors()](crate::StatementBuilder::batch_errors())
+    and
+    [ExecBatchResult::batch_errors()](crate::ExecBatchResult::batch_errors())
+    so that a DML statement executed with
+    [Statement::execute_batch()](crate::Statement::execute_batch()) runs every
+    row and returns the error of each row that fails, with its offset in the
+    batch, instead of stopping at the first one. More than 65535 failing rows
+    return the new error
+    [ErrorKind::TooManyBatchErrors](crate::ErrorKind::TooManyBatchErrors)
+    ([issue 41](https://github.com/oracle/rust-oracledb/issues/41)).
+1.  Fixed DML RETURNING data returned before a batch error being discarded.
 
 
 ## rust-oracledb 26.0.0-beta.6 (November 12, 2026)

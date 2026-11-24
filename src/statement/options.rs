@@ -36,6 +36,7 @@ pub(crate) struct StatementOptions {
     prefetch_rows: u32,
     fetch_array_size: u32,
     fetch_lobs: bool,
+    batch_errors: bool,
     #[cfg(feature = "arrow")]
     requested_schema: Option<SchemaRef>,
     #[cfg(feature = "arrow")]
@@ -46,6 +47,12 @@ impl StatementOptions {
     #[cfg(feature = "arrow")]
     pub(crate) fn arrow_batch_size(&self) -> usize {
         self.arrow_batch_size.unwrap_or(1024)
+    }
+
+    /// Returns whether the errors of the rows of a batch are returned instead
+    /// of stopping the batch at the first error.
+    pub(crate) fn batch_errors(&self) -> bool {
+        self.batch_errors
     }
 
     /// Returns the configured fetch array size.
@@ -65,6 +72,7 @@ impl StatementOptions {
             prefetch_rows: 2,
             fetch_array_size: 100,
             fetch_lobs: false,
+            batch_errors: false,
             #[cfg(feature = "arrow")]
             requested_schema: None,
             #[cfg(feature = "arrow")]
@@ -87,6 +95,12 @@ impl StatementOptions {
     #[cfg(feature = "arrow")]
     pub(crate) fn set_arrow_batch_size(&mut self, value: usize) {
         self.arrow_batch_size = Some(value);
+    }
+
+    /// Specifies that the errors of the rows of a batch are returned instead
+    /// of stopping the batch at the first error.
+    pub(crate) fn set_batch_errors(&mut self) {
+        self.batch_errors = true;
     }
 
     /// Sets the number of rows to fetch each time rows are fetched.

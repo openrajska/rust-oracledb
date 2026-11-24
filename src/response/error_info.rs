@@ -39,6 +39,8 @@ pub(crate) struct ErrorInfo {
     cursor_id: u16,
     flags: u8,
     rowcount: u64,
+    batch_errors: Vec<DbError>,
+    num_batch_errors: usize,
 }
 
 impl ErrorInfo {
@@ -69,18 +71,8 @@ impl ErrorInfo {
         if resp.read_ub4()? > 0 {
             let _logical_rowid = resp.read_bytes_with_length()?;
         }
-        if resp.read_ub2()? > 0 {
-            // batch errors
-            todo!();
-        }
-        if resp.read_ub4()? > 0 {
-            // batch error offsets
-            todo!();
-        }
-        if resp.read_ub2()? > 0 {
-            // batch error messages
-            todo!();
-        }
+        let (batch_errors, num_batch_errors) =
+            Self::deserialize_batch_errors(resp)?;
         let error_num = resp.read_ub4()?;
         let rowcount = resp.read_ub8()?;
         if client.supports_ttc_field_version(constants::TTC_FIELD_VERSION_20_1)
@@ -99,7 +91,80 @@ impl ErrorInfo {
             })
         };
 
-        Ok(ErrorInfo { cursor_id, flags, rowcount, db_error })
+        Ok(ErrorInfo {
+            cursor_id,
+            flags,
+            rowcount,
+            db_error,
+            batch_errors,
+            num_batch_errors,
+        })
+    }
+
+    /// Deserializes the errors of the rows of a batch executed with batch
+    /// errors enabled: an array of error codes, then an array of row offsets
+    /// and then an array of messages, each array empty when no row failed.
+    /// An array of codes or offsets whose first byte is the long length
+    /// indicator is sent in chunks: each element is preceded by a chunk
+    /// length and the array ends with a marker. The number of codes and of
+    /// messages is sent in two bytes and the number of offsets in four, so
+    /// the number of offsets is the number of failing rows, returned with
+    /// the errors.
+    fn deserialize_batch_errors(
+        resp: &mut Response,
+    ) -> Result<(Vec<DbError>, usize), Error> {
+        let num_errors = resp.read_ub2()? as usize;
+        let mut batch_errors = Vec::with_capacity(num_errors);
+        if num_errors > 0 {
+            let chunked =
+                resp.read_u8()? == constants::TTC_LONG_LENGTH_INDICATOR;
+            for _ in 0..num_errors {
+                if chunked {
+                    resp.read_ub4()?; // chunk length
+                }
+                batch_errors.push(DbError {
+                    code: resp.read_ub2()? as usize,
+                    offset: 0,
+                    message: String::new(),
+                });
+            }
+            if chunked {
+                resp.advance(1)?; // end marker
+            }
+        }
+        let num_offsets = resp.read_ub4()? as usize;
+        if num_offsets > 0 {
+            let chunked =
+                resp.read_u8()? == constants::TTC_LONG_LENGTH_INDICATOR;
+            for i in 0..num_offsets {
+                if chunked {
+                    resp.read_ub4()?; // chunk length
+                }
+                let offset = resp.read_ub4()? as usize;
+                if let Some(batch_error) = batch_errors.get_mut(i) {
+                    batch_error.offset = offset;
+                }
+            }
+            if chunked {
+                resp.advance(1)?; // end marker
+            }
+        }
+        let num_messages = resp.read_ub2()? as usize;
+        if num_messages > 0 {
+            resp.advance(1)?; // packed size
+            for i in 0..num_messages {
+                resp.read_ub2()?; // chunk length
+                let message =
+                    resp.read_utf8_with_length()?.trim_end().to_string();
+                if let Some(batch_error) = batch_errors.get_mut(i) {
+                    batch_error.message = message;
+                }
+                resp.advance(2)?; // end marker
+            }
+        }
+        // the server groups the errors by the check that failed, not by row
+        batch_errors.sort_by_key(|e| e.offset);
+        Ok((batch_errors, num_offsets))
     }
 
     /// Returns the cursor id.
@@ -115,6 +180,18 @@ impl ErrorInfo {
     /// Returns the row count.
     pub(crate) fn rowcount(&self) -> u64 {
         self.rowcount
+    }
+
+    /// Returns the number of failing rows of a batch when more failed than the
+    /// server can return the errors of, in which case those are incomplete.
+    pub(crate) fn too_many_batch_errors(&self) -> Option<usize> {
+        (self.num_batch_errors > u16::MAX as usize)
+            .then_some(self.num_batch_errors)
+    }
+
+    /// Takes the errors of the rows of a batch and returns them.
+    pub(crate) fn take_batch_errors(&mut self) -> Vec<DbError> {
+        std::mem::take(&mut self.batch_errors)
     }
 
     /// Takes the error message from the response and returns it.
@@ -173,7 +250,10 @@ impl DbError {
         &self.message
     }
 
-    /// Returns the offset associated with the database error.
+    /// Returns the offset associated with the database error: the position
+    /// in the SQL text where the error was found or, for an error returned by
+    /// [ExecBatchResult::batch_errors()](crate::ExecBatchResult::batch_errors()),
+    /// the index of the failing row in the batch, starting from zero.
     pub fn offset(&self) -> usize {
         self.offset
     }

@@ -272,6 +272,65 @@ for (p1, p2) in data {
 println!("{outvals:?}");
 ```
 
+### <a name="batcherrors"></a> 6.1.3 Handling Data Errors
+
+Large datasets may contain some invalid data. By default, the first row that
+fails stops the batch:
+[Connection::execute_batch()](crate::Connection::execute_batch) returns its
+error, without saying which row it was, and the rows before it stay applied in
+the transaction.
+
+When a DML statement (INSERT, UPDATE, DELETE or MERGE) is built with
+[StatementBuilder::batch_errors()](crate::StatementBuilder::batch_errors), the
+database runs every row of the batch, still in one round-trip, and reports the
+error of each row that fails. The rows that succeed stay applied in the
+transaction, and the errors are returned by
+[ExecBatchResult::batch_errors()](crate::ExecBatchResult::batch_errors), in row
+order. The [offset()](crate::DbError::offset) of each error is the index of its
+row in the batch, starting from zero:
+
+```rust
+let rows: &[&[&dyn ToDbValue]] = &[
+    &[&1000, &"Parent 1000"],
+    &[&1000, &"Parent 1000 (duplicate)"],
+    &[&1001, &"Parent 1001"],
+    &[&1002, &None::<&str>],
+];
+let result = connection
+    .statement("insert into ParentTable values (:1, :2)")?
+    .batch_errors()
+    .build()?
+    .execute_batch(rows)?;
+
+for error in result.batch_errors() {
+    println!("Row {} failed: {}", error.offset(), error.message());
+}
+println!("{} rows inserted", result.rows_affected());
+```
+
+The output is:
+
+```text
+Row 1 failed: ORA-00001: unique constraint (HR.PARENTTABLE_PK) violated
+Row 3 failed: ORA-01400: cannot insert NULL into ("HR"."PARENTTABLE"."DESCRIPTION")
+2 rows inserted
+```
+
+The application can then choose to commit the rows that succeeded, or to roll
+back the transaction and fix the data. With DML RETURNING, the rows that fail
+return no data.
+
+At most 65535 errors can be returned. When more rows of a batch fail,
+[Connection::execute_batch()](crate::Connection::execute_batch) returns an
+error of kind
+[ErrorKind::TooManyBatchErrors](crate::ErrorKind::TooManyBatchErrors) and the
+rows that succeeded stay applied in the transaction.
+
+The option has no effect on PL/SQL statements, which stop at the first failing
+row as without it, nor on
+[Statement::execute()](crate::Statement::execute), which returns the error of
+its row as an error.
+
 ## <a name="identifyaffectedrows"></a> 6.2 Identifying Affected Rows
 
 When executing a DML statement with
