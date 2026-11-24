@@ -338,6 +338,10 @@ impl Message for ExecuteMessage<'_, '_> {
     ) -> Result<(), Error> {
         resp.read_bytes_with_length()?;
         self.statement.populate_from_describe_info(client, resp)?;
+        // The define that follows the describe of an execution asks for the
+        // LOB prefetch size; the cursors of REF CURSORs and implicit results
+        // are fetched without a define, so their LOBs are not prefetched.
+        self.statement.set_lob_prefetch_size();
         let num_metadata = self.statement.out_metadata().len();
         self.num_fetch_columns = num_metadata.try_into().unwrap();
         Ok(())
