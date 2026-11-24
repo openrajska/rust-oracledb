@@ -24,6 +24,8 @@
 1.  Use `debug_struct()` for `Error` so that the cause is not lost when
     debugging errors
     ([issue 76](https://github.com/oracle/rust-oracledb/issues/76)).
+1.  Fixed bug where a TRUE BOOLEAN attribute or collection element of an
+    object built in SQL, or stored in a table, was read as FALSE.
 
 
 ## rust-oracledb 26.0.0-beta.6 (November 12, 2026)
