@@ -76,8 +76,11 @@ impl StatementCache {
         let cached_info =
             self.cached_statements[slot_num - 1].as_ref().unwrap();
         let mut info = cached_info.clone_with_options(options);
-        let fetch_lobs_changed =
-            cached_info.options().fetch_lobs() != options.fetch_lobs();
+        // The define of the cached cursor no longer matches the options.
+        let define_changed = cached_info.options().fetch_lobs()
+            != options.fetch_lobs()
+            || cached_info.options().lob_prefetch_size()
+                != options.lob_prefetch_size();
         if let Some(index) =
             self.free_used_slots.iter().position(|x| *x == slot_num)
         {
@@ -92,7 +95,7 @@ impl StatementCache {
             info.set_cache_slot_num(0);
             info.clear_cursor();
         }
-        if fetch_lobs_changed {
+        if define_changed {
             self.close_cursor(&info);
             info.clear_cursor();
         }

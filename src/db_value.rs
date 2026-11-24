@@ -136,7 +136,7 @@ impl DbValue {
         let mut array: Vec<Option<DbValue>> = Vec::with_capacity(num_elements);
         for _ in 0..num_elements {
             array.push(DbValue::scalar_from_response(
-                resp, client, statement, db_type, false,
+                resp, client, statement, db_type, false, false,
             )?);
         }
         Ok(Some(DbValue::Array(DbRow::new(array))))
@@ -148,6 +148,7 @@ impl DbValue {
         statement: &CachedStatement,
         db_type: &'static DbType,
         in_fetch: bool,
+        lob_prefetch: bool,
     ) -> Result<Option<DbValue>, Error> {
         let mut value = match db_type.ora_type_num {
             constants::ORA_TYPE_NUM_BINARY_DOUBLE => {
@@ -232,7 +233,8 @@ impl DbValue {
             constants::ORA_TYPE_NUM_CLOB
             | constants::ORA_TYPE_NUM_BLOB
             | constants::ORA_TYPE_NUM_BFILE => {
-                let data = PendingLobData::from_resp(resp, db_type)?;
+                let data =
+                    PendingLobData::from_resp(resp, db_type, lob_prefetch)?;
                 resp.add_pending_db_value(data.map(PendingDbValue::Lob));
                 Ok(None)
             }
@@ -314,6 +316,7 @@ impl DbValue {
                 statement,
                 metadata.db_type(),
                 in_fetch,
+                metadata.lob_prefetch_size() > 0,
             )
         }
     }
