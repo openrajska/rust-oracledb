@@ -258,7 +258,7 @@ impl ExecuteMessage<'_, '_> {
         // determine options and flags to use
         let fn_type: u8;
         let mut options_1: u32 = 0;
-        let options_2: u32 = 0;
+        let mut options_2: u32 = 0;
         let num_iters: u32;
         if self.statement.is_query()
             && self.statement.options().prefetch_rows() > 0
@@ -269,6 +269,9 @@ impl ExecuteMessage<'_, '_> {
         } else {
             fn_type = constants::TTC_RPC_REEXECUTE;
             num_iters = self.num_execs;
+            if self.autocommit {
+                options_2 |= constants::TTC_REEXEC_OPTION_COMMIT;
+            }
         }
 
         // write message
@@ -290,6 +293,7 @@ impl ExecuteMessage<'_, '_> {
         statement: &'statement mut CachedStatement,
         params: BindParameters<'params>,
         parse_only: bool,
+        autocommit: bool,
     ) -> ExecuteMessage<'statement, 'params> {
         ExecuteMessage {
             parse_only,
@@ -299,7 +303,7 @@ impl ExecuteMessage<'_, '_> {
             renegotiation_needed: false,
             num_execs: params.num_rows().try_into().unwrap(),
             num_fetch_columns: 0,
-            autocommit: false,
+            autocommit,
             fetch_orientation: 0,
             fetch_pos: 0,
             statement,
@@ -417,12 +421,17 @@ impl Message for ExecuteMessage<'_, '_> {
     }
 
     fn serialize(&self, client: &Client, buf: &mut WriteBuffer) {
+        // a query with autocommit always uses the full execute: there the
+        // server fetches the first rows before it commits, whereas a commit
+        // in a re-execute and fetch comes before the fetch, which then fails
+        // with ORA-01002 for SELECT ... FOR UPDATE
         if !self.statement.has_cursor()
             || self.statement.no_prefetch()
             || self.statement.binds_changed()
             || self.parse_only
             || self.statement.requires_define()
             || self.statement.is_ddl()
+            || (self.autocommit && self.statement.is_query())
         {
             self.write_full_execute(client, buf);
         } else {

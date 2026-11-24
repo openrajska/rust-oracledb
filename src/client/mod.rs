@@ -781,7 +781,8 @@ impl Client {
     /// binds have been checked and transformed (if needed) into the sequence
     /// required by the server. Statements that require single execution are
     /// performed once first before subsequent iterations are performed as a
-    /// batch.
+    /// batch. If the statement uses autocommit, only the final execution
+    /// commits, so a failing iteration never leaves the first one committed.
     pub(crate) fn execute(
         &mut self,
         statement: &mut CachedStatement,
@@ -789,31 +790,49 @@ impl Client {
         params: BindParameters,
         parse_only: bool,
     ) -> Result<Response, Error> {
+        let autocommit = statement.options().autocommit() && !parse_only;
         if params.num_rows() > 1 && statement.requires_single_execute() {
-            let mut initial_resp = self.execute(
+            let mut initial_resp = self.execute_once(
                 statement,
                 client_ref,
                 params.slice(0, 1),
                 false,
+                false,
             )?;
-            let mut final_resp = self.execute(
+            let mut final_resp = self.execute_once(
                 statement,
                 client_ref,
                 params.slice(1, params.num_rows() - 1),
                 false,
+                autocommit,
             )?;
             final_resp.transfer_info(&mut initial_resp);
             Ok(final_resp)
         } else {
-            let mut message =
-                ExecuteMessage::new(statement, params, parse_only);
-            let mut response = self.process_message(&mut message)?;
-            response.complete_values(self, client_ref, statement)?;
-            if statement.requires_define() {
-                statement.clear_requires_define();
-            }
-            Ok(response)
+            self.execute_once(
+                statement, client_ref, params, parse_only, autocommit,
+            )
         }
+    }
+
+    /// Executes the given statement in a single execute message and returns
+    /// the response.
+    fn execute_once(
+        &mut self,
+        statement: &mut CachedStatement,
+        client_ref: &ClientRef,
+        params: BindParameters,
+        parse_only: bool,
+        autocommit: bool,
+    ) -> Result<Response, Error> {
+        let mut message =
+            ExecuteMessage::new(statement, params, parse_only, autocommit);
+        let mut response = self.process_message(&mut message)?;
+        response.complete_values(self, client_ref, statement)?;
+        if statement.requires_define() {
+            statement.clear_requires_define();
+        }
+        Ok(response)
     }
 
     /// Performs a fetch and returns the database response.
