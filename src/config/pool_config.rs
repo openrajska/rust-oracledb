@@ -288,6 +288,14 @@ impl PoolConfig {
         self
     }
 
+    /// Sets the time zone of each session in the pool, which is set when the
+    /// session is created. See
+    /// [`Config::set_time_zone()`](crate::Config::set_time_zone).
+    pub fn set_time_zone(mut self, value: impl Into<String>) -> Self {
+        self.connection_config = self.connection_config.set_time_zone(value);
+        self
+    }
+
     /// Sets the user to use when connecting to the database. If the user is in
     /// the form "user\[proxy_user\]", the proxy_user portion is saved
     /// separately.  If the proxy_user is empty or one of the opening or
@@ -324,6 +332,12 @@ impl PoolConfig {
     /// "unknown".
     pub fn terminal(&self) -> &str {
         self.connection_config.terminal()
+    }
+
+    /// Returns the time zone that is set for each session in the pool when it
+    /// is created.
+    pub fn time_zone(&self) -> Option<&str> {
+        self.connection_config.time_zone()
     }
 
     /// Returns the user associated with the configuration.

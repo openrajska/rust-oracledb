@@ -24,6 +24,11 @@
 1.  Use `debug_struct()` for `Error` so that the cause is not lost when
     debugging errors
     ([issue 76](https://github.com/oracle/rust-oracledb/issues/76)).
+1.  Added [Config::set_time_zone()](crate::Config::set_time_zone()) and
+    [PoolConfig::set_time_zone()](crate::PoolConfig::set_time_zone()) to set
+    the session time zone, for example to a time zone region name that follows
+    daylight saving time, when the session is created. It takes precedence over
+    the `ORA_SDTZ` environment variable.
 
 
 ## rust-oracledb 26.0.0-beta.6 (November 12, 2026)

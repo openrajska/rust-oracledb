@@ -273,9 +273,15 @@ impl AuthMessage {
 
     /// Returns the alter session statement that is sent during the initial
     /// connection to the database. This includes the directive to change the
-    /// session time zone to match the time zone in use by the system.
-    fn get_alter_session_statement(&self) -> String {
-        let tz_repr = if let Ok(value) = std::env::var("ORA_SDTZ")
+    /// session time zone to the one set in the configuration, the one in the
+    /// ORA_SDTZ environment variable or else the time zone in use by the
+    /// system.
+    fn get_alter_session_statement(&self, client: &Client) -> String {
+        let time_zone = match client.config().time_zone() {
+            Some(value) => Some(value.to_string()),
+            None => std::env::var("ORA_SDTZ").ok(),
+        };
+        let tz_repr = if let Some(value) = time_zone
             && !value.is_empty()
         {
             match value.to_uppercase().as_str() {
@@ -554,7 +560,7 @@ impl Message for AuthMessage {
             );
             self.add_pair(
                 "AUTH_ALTER_SESSION",
-                &self.get_alter_session_statement(),
+                &self.get_alter_session_statement(client),
                 1,
             );
             if let Some(cclass) = client.config().cclass() {

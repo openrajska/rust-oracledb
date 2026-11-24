@@ -56,6 +56,7 @@ pub struct Config {
     program: Option<String>,
     machine: Option<String>,
     terminal: Option<String>,
+    time_zone: Option<String>,
     cclass: Option<String>,
     wallet_location: Option<String>,
     wallet_password: Option<SecretValue>,
@@ -266,6 +267,24 @@ impl Config {
         self
     }
 
+    /// Sets the time zone of the session, which is set when the session is
+    /// created. It accepts the values of the ORA_SDTZ environment variable,
+    /// which it takes precedence over: a time zone region name such as
+    /// "America/Sao_Paulo", which follows daylight saving time, an offset such
+    /// as "-03:00", or "LOCAL" or "DBTIMEZONE". Without it, the session time
+    /// zone is taken from ORA_SDTZ or else is the current offset of the
+    /// machine's local time zone. An empty value removes the setting. An
+    /// unknown time zone makes the connection fail with the database error.
+    pub fn set_time_zone(mut self, value: impl Into<String>) -> Self {
+        let value = value.into();
+        if value.is_empty() {
+            self.time_zone = None;
+        } else {
+            self.time_zone = Some(value);
+        }
+        self
+    }
+
     /// Sets the default transport connect timeout to use when establishing a
     /// connection to the database. If a value is specified in the description
     /// portion of a connect string, that value takes precedence.
@@ -333,6 +352,12 @@ impl Config {
         self.terminal.as_deref().unwrap_or("unknown")
     }
 
+    /// Returns the time zone that is set for the session when it is created,
+    /// if one was set with [`set_time_zone()`](Self::set_time_zone).
+    pub fn time_zone(&self) -> Option<&str> {
+        self.time_zone.as_deref()
+    }
+
     /// Returns the default transport connect timeout that will be used when
     /// establishing a connection to the database. If a value is specified in
     /// the description portion of a connect string, that value takes
@@ -368,6 +393,7 @@ impl Default for Config {
             program: None,
             machine: None,
             terminal: None,
+            time_zone: None,
             cclass: None,
             wallet_location: None,
             wallet_password: None,
