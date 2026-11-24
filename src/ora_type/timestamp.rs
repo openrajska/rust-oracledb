@@ -45,6 +45,14 @@ use crate::write_buffer::WriteBuffer;
 
 /// Represents the value of DATE, TIMESTAMP, TIMESTAMP WITH LOCAL TIME ZONE and
 /// TIMESTAMP WITH TIME ZONE columns in the database.
+///
+/// TIMESTAMP WITH TIME ZONE and TIMESTAMP WITH LOCAL TIME ZONE values are
+/// UTC timestamps: their date and time are in UTC. A TIMESTAMP WITH TIME ZONE
+/// value also keeps the offset of its time zone (see
+/// [`tz_hour_offset()`](Self::tz_hour_offset)), which is sent back to the
+/// database when the value is bound. A value stored with a time zone region
+/// name instead of an offset is fetched with an offset of zero, since the
+/// region's offset at that instant is not known on the client.
 #[derive(Clone, Copy, PartialEq)]
 pub struct OracleTimestamp {
     year: i16,
@@ -55,6 +63,8 @@ pub struct OracleTimestamp {
     second: u8,
     nanoseconds: u32,
     is_utc: bool,
+    tz_hour_offset: i8,
+    tz_minute_offset: i8,
 }
 
 impl Default for OracleTimestamp {
@@ -68,6 +78,8 @@ impl Default for OracleTimestamp {
             second: 0,
             nanoseconds: 0,
             is_utc: true,
+            tz_hour_offset: 0,
+            tz_minute_offset: 0,
         }
     }
 }
@@ -150,7 +162,11 @@ impl OracleTimestamp {
         self.hour
     }
 
-    /// Returns whether the timestamp is a UTC timestamp or not.
+    /// Returns whether the timestamp is a UTC timestamp or not. A timestamp
+    /// with a time zone is a UTC timestamp: its date and time are in UTC and
+    /// [`tz_hour_offset()`](Self::tz_hour_offset) and
+    /// [`tz_minute_offset()`](Self::tz_minute_offset) return the offset of
+    /// its time zone.
     pub fn is_utc(&self) -> bool {
         self.is_utc
     }
@@ -182,6 +198,8 @@ impl OracleTimestamp {
             second: 0,
             nanoseconds: 0,
             is_utc: false,
+            tz_hour_offset: 0,
+            tz_minute_offset: 0,
         }
     }
 
@@ -204,6 +222,8 @@ impl OracleTimestamp {
             second,
             nanoseconds,
             is_utc: false,
+            tz_hour_offset: 0,
+            tz_minute_offset: 0,
         }
     }
 
@@ -226,12 +246,55 @@ impl OracleTimestamp {
             second,
             nanoseconds,
             is_utc: true,
+            tz_hour_offset: 0,
+            tz_minute_offset: 0,
         }
     }
 
     /// Returns the second of the timestamp.
     pub fn second(&self) -> u8 {
         self.second
+    }
+
+    /// Returns the hour portion of the time zone offset of the timestamp. It
+    /// is negative for time zones west of UTC and zero for timestamps without
+    /// a time zone.
+    pub fn tz_hour_offset(&self) -> i8 {
+        self.tz_hour_offset
+    }
+
+    /// Returns the minute portion of the time zone offset of the timestamp. It
+    /// has the same sign as the whole offset, so -03:30 has an hour portion of
+    /// -3 and a minute portion of -30.
+    pub fn tz_minute_offset(&self) -> i8 {
+        self.tz_minute_offset
+    }
+
+    /// Returns the same instant as a timestamp with a time zone that has the
+    /// given offset from UTC. The date and time of the timestamp are taken as
+    /// UTC and are not changed; the offset is the one stored in a TIMESTAMP
+    /// WITH TIME ZONE value. Both portions of the offset have the same sign,
+    /// so -03:30 is given as -3 hours and -30 minutes. An error is returned if
+    /// the hours are not between -15 and 15, the minutes are not between -59
+    /// and 59 or the two portions have different signs.
+    pub fn with_tz_offset(
+        mut self,
+        hours: i8,
+        minutes: i8,
+    ) -> Result<Self, Error> {
+        if !(-15..=15).contains(&hours)
+            || !(-59..=59).contains(&minutes)
+            || (hours > 0 && minutes < 0)
+            || (hours < 0 && minutes > 0)
+        {
+            return Err(Error::out_of_range(format!(
+                "invalid time zone offset: {hours} hours and {minutes} minutes"
+            )));
+        }
+        self.is_utc = true;
+        self.tz_hour_offset = hours;
+        self.tz_minute_offset = minutes;
+        Ok(self)
     }
 
     /// Returns the year of the timestamp.
@@ -264,7 +327,23 @@ impl fmt::Display for OracleTimestamp {
 
 impl fmt::Debug for OracleTimestamp {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_tuple("OracleTimestamp").field(&self.to_string()).finish()
+        let mut tuple = f.debug_tuple("OracleTimestamp");
+        tuple.field(&self.to_string());
+        if self.tz_hour_offset != 0 || self.tz_minute_offset != 0 {
+            let sign = if self.tz_hour_offset < 0 || self.tz_minute_offset < 0
+            {
+                '-'
+            } else {
+                '+'
+            };
+            tuple.field(&format!(
+                "{}{:02}:{:02}",
+                sign,
+                self.tz_hour_offset.unsigned_abs(),
+                self.tz_minute_offset.unsigned_abs()
+            ));
+        }
+        tuple.finish()
     }
 }
 
@@ -275,6 +354,20 @@ impl FromBuf for OracleTimestamp {
             nanoseconds = u32::from_be_bytes(buf[7..11].try_into().unwrap());
         }
         let is_utc = buf.len() == constants::ORA_TYPE_SIZE_TIMESTAMP_TZ;
+        // the date and time are always in UTC; the last two bytes hold either
+        // the offset of the time zone or the id of a time zone region, whose
+        // offset is not known on the client
+        let mut tz_hour_offset = 0;
+        let mut tz_minute_offset = 0;
+        if is_utc
+            && buf[11] & constants::TZ_HAS_REGION_ID == 0
+            && buf[11] != 0
+            && buf[12] != 0
+        {
+            tz_hour_offset = buf[11] as i8 - constants::TZ_HOUR_OFFSET as i8;
+            tz_minute_offset =
+                buf[12] as i8 - constants::TZ_MINUTE_OFFSET as i8;
+        }
         Self {
             year: ((buf[0] as i16 - 100) * 100 + buf[1] as i16 - 100),
             month: buf[2],
@@ -284,6 +377,8 @@ impl FromBuf for OracleTimestamp {
             second: buf[6] - 1,
             nanoseconds,
             is_utc,
+            tz_hour_offset,
+            tz_minute_offset,
         }
     }
 }
@@ -314,8 +409,14 @@ impl ToBuf for OracleTimestamp {
         if actual_db_type != crate::DB_TYPE_DATE {
             buf.write_u32be(self.nanoseconds());
             if actual_db_type == crate::DB_TYPE_TIMESTAMP_TZ {
-                buf.write_u8(constants::TZ_HOUR_OFFSET);
-                buf.write_u8(constants::TZ_MINUTE_OFFSET);
+                buf.write_u8(
+                    (constants::TZ_HOUR_OFFSET as i8 + self.tz_hour_offset)
+                        as u8,
+                );
+                buf.write_u8(
+                    (constants::TZ_MINUTE_OFFSET as i8 + self.tz_minute_offset)
+                        as u8,
+                );
             }
         }
     }
@@ -332,6 +433,8 @@ impl From<chrono::NaiveDateTime> for OracleTimestamp {
             second: value.second() as u8,
             nanoseconds: value.nanosecond(),
             is_utc: false,
+            tz_hour_offset: 0,
+            tz_minute_offset: 0,
         }
     }
 }

@@ -364,6 +364,7 @@ pub const TTC_DATA_FLAGS_END_OF_RESPONSE: u16 = 0x2000;
 // timezone offset constants
 pub const TZ_HOUR_OFFSET: u8 = 20;
 pub const TZ_MINUTE_OFFSET: u8 = 60;
+pub const TZ_HAS_REGION_ID: u8 = 0x80;
 
 // duration offset constants
 pub const DURATION_MID: u32 = 0x80000000;
