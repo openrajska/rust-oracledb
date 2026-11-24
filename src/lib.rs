@@ -85,6 +85,7 @@ pub use crate::db_type::DbType;
 pub use crate::dbobject::DbCollection;
 pub use crate::dbobject::DbObject;
 pub use crate::dbobject::DbObjectType;
+pub use crate::dbobject::IntoDbObjectValue;
 pub use crate::end_user_security_context::EndUserSecurityContext;
 pub use crate::end_user_security_context::EndUserSecurityContextBuilder;
 pub use crate::error::Error;

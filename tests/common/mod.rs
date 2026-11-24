@@ -216,6 +216,20 @@ pub fn create_type<'a>(
 }
 
 #[allow(dead_code)]
+/// Creates the subtype with the given name and definition, which starts with
+/// UNDER and the name of its supertype.
+pub fn create_subtype<'a>(
+    conn: &'a oracledb::Connection,
+    type_name: &'a str,
+    definition: &str,
+) -> Result<TypeGuard<'a>, oracledb::Error> {
+    let guard = TypeGuard { conn, type_name };
+    guard.drop_type()?;
+    conn.execute(&format!("create type {type_name} {definition}"), &[])?;
+    Ok(guard)
+}
+
+#[allow(dead_code)]
 /// Returns whether the connection is to an Oracle Cloud database.
 pub fn is_on_oracle_cloud(
     conn: &oracledb::Connection,

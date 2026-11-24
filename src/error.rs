@@ -44,6 +44,7 @@ pub enum ErrorKind {
     ArrowOperation,
     CallTimeoutExceeded,
     CannotConvertToArrowDecimal(String, u8, i8),
+    CannotStoreDbObjectValue(String, String, String),
     ColumnTruncated(usize, usize),
     DbError(DbError),
     DbObjectTypeUnavailable,
@@ -71,6 +72,7 @@ pub enum ErrorKind {
     ListenerRefusedConnection(String, String, u16, usize),
     LockPoisoned,
     MissingBindValue(String),
+    MissingDbObjectType(String),
     NameHasEmbeddedQuotes,
     NoConfigDir,
     NoConnectString,
@@ -101,6 +103,8 @@ pub enum ErrorKind {
     UnknownTtcMessageType(u8, ResponseLocation),
     UnsupportedArrowType(String),
     UnsupportedConversion(String, String),
+    UnsupportedDbObjectAttributeType(String, String),
+    UnsupportedDbObjectSubtype(String),
     UnsupportedDbType(&'static DbType),
     UnsupportedDeepDataSecurityFeature,
     UnsupportedObjectMetadataType(String),
@@ -114,6 +118,7 @@ pub enum ErrorKind {
     WalletPrivateKeyInvalid(String),
     WalletUnreadable(String),
     WrongArrowSchemaLength(usize, usize),
+    WrongDbObjectTypeKind(String, &'static str),
     WrongNumPositionalBinds(usize, usize),
 }
 
@@ -207,6 +212,12 @@ impl fmt::Display for Error {
                     fmt,
                     "{num} cannot be converted to an Apache Arrow \
                  decimal({precision}, {scale})"
+                )?
+            }
+            ErrorKind::CannotStoreDbObjectValue(value, target, data_type) => {
+                write!(
+                    fmt,
+                    "cannot store {value} in {target} of type {data_type}"
                 )?
             }
             ErrorKind::ColumnTruncated(col_value_size, actual_size) => write!(
@@ -337,6 +348,12 @@ impl fmt::Display for Error {
                 "a bind variable replacement value for \
                 placeholder \":{name}\" was not provided"
             )?,
+            ErrorKind::MissingDbObjectType(name) => write!(
+                fmt,
+                "bind {name} of type DB_TYPE_OBJECT needs its object type: \
+                 bind a DbObject, a DbCollection or the Arc<DbObjectType> \
+                 returned by Connection::get_type()"
+            )?,
             ErrorKind::NameHasEmbeddedQuotes => {
                 fmt.write_str("name has embedded quotes")?
             }
@@ -424,6 +441,18 @@ impl fmt::Display for Error {
                 "unsupported conversion from {} to {}",
                 from_type, to_type
             )?,
+            ErrorKind::UnsupportedDbObjectAttributeType(target, data_type) => {
+                write!(
+                    fmt,
+                    "storing a value in {target} of type {data_type} is not \
+                     supported"
+                )?
+            }
+            ErrorKind::UnsupportedDbObjectSubtype(type_name) => write!(
+                fmt,
+                "{type_name} holds an instance of an object subtype, which is \
+                 not supported"
+            )?,
             ErrorKind::UnsupportedDbType(db_type) => {
                 write!(fmt, "unsupported database type {}", db_type.name())?
             }
@@ -474,6 +503,9 @@ impl fmt::Display for Error {
                 "requested Arrow schema has {num_schema_fields} fields \
                      but query returned {num_fetched_columns} columns",
             )?,
+            ErrorKind::WrongDbObjectTypeKind(type_name, expected) => {
+                write!(fmt, "{type_name} is not {expected}")?
+            }
             ErrorKind::WrongNumPositionalBinds(expected_num, actual_num) => {
                 write!(
                     fmt,
@@ -512,6 +544,23 @@ impl Error {
     ) -> Self {
         Self::new(
             ErrorKind::CannotConvertToArrowDecimal(num, precision, scale),
+            None,
+        )
+    }
+
+    /// Creates an error for a value that cannot be stored in an attribute or
+    /// an element of an object or collection built on the client.
+    pub(crate) fn cannot_store_db_object_value(
+        value: impl Into<String>,
+        target: impl Into<String>,
+        data_type: impl Into<String>,
+    ) -> Error {
+        Error::new(
+            ErrorKind::CannotStoreDbObjectValue(
+                value.into(),
+                target.into(),
+                data_type.into(),
+            ),
             None,
         )
     }
@@ -710,6 +759,11 @@ impl Error {
         Error::new(ErrorKind::MissingBindValue(name.to_string()), None)
     }
 
+    /// Creates an error for a DB_TYPE_OBJECT bind without its object type.
+    pub(crate) fn missing_db_object_type(name: &str) -> Error {
+        Error::new(ErrorKind::MissingDbObjectType(name.to_string()), None)
+    }
+
     pub(crate) fn name_has_embedded_quotes() -> Error {
         Error::new(ErrorKind::NameHasEmbeddedQuotes, None)
     }
@@ -843,6 +897,26 @@ impl Error {
         )
     }
 
+    /// Creates an error for a value given to an attribute or element whose
+    /// type cannot be written in an object image.
+    pub(crate) fn unsupported_db_object_attribute_type(
+        target: impl Into<String>,
+        data_type: impl Into<String>,
+    ) -> Error {
+        Error::new(
+            ErrorKind::UnsupportedDbObjectAttributeType(
+                target.into(),
+                data_type.into(),
+            ),
+            None,
+        )
+    }
+
+    /// Creates an error for an instance of an object subtype.
+    pub(crate) fn unsupported_db_object_subtype(type_name: String) -> Error {
+        Error::new(ErrorKind::UnsupportedDbObjectSubtype(type_name), None)
+    }
+
     pub(crate) fn unsupported_db_type(db_type: &'static DbType) -> Error {
         Error::new(ErrorKind::UnsupportedDbType(db_type), None)
     }
@@ -915,6 +989,15 @@ impl Error {
             ),
             None,
         )
+    }
+
+    /// Creates an error for an object type used where another kind of type
+    /// (object, collection, associative array) is expected.
+    pub(crate) fn wrong_db_object_type_kind(
+        type_name: String,
+        expected: &'static str,
+    ) -> Error {
+        Error::new(ErrorKind::WrongDbObjectTypeKind(type_name, expected), None)
     }
 
     pub(crate) fn wrong_num_positional_binds(

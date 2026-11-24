@@ -499,3 +499,58 @@ Depending on the name provided by the user, the query results will be
 ordered either by the column DEPARTMENT_ID or the column MANAGER_ID.
 
 See [Dynamic SQL Construction and Validation](#validatingsql).
+
+## <a name="bindobjects"></a> 5.11 Binding Objects and Collections
+
+Values of named types are built on the client from the type returned by
+[Connection::get_type()](crate::Connection::get_type) and bound like any other
+value: an object with [DbObject::new()](crate::DbObject::new) and
+[DbObject::set()](crate::DbObject::set), a nested table or VARRAY with
+[DbCollection::new()](crate::DbCollection::new) and
+[DbCollection::push()](crate::DbCollection::push), and a PL/SQL associative
+array (`INDEX BY PLS_INTEGER` or `BINARY_INTEGER`) with
+[DbCollection::insert()](crate::DbCollection::insert). Each value is checked
+against its attribute or element type when it is set. Objects and collections
+that were fetched can be changed and bound again.
+
+```rust
+let point_type = conn.get_type("MY_POINT")?;
+let mut point = oracledb::DbObject::new(&point_type)?;
+point.set("X", 1.5)?;
+point.set("LABEL", "origin")?;
+
+let ids_type = conn.get_type("SYS.ODCINUMBERLIST")?;
+let mut ids = oracledb::DbCollection::new(&ids_type)?;
+for id in [1, 5, 999] {
+    ids.push(id)?;
+}
+let cursor = conn.query(
+    "select * from my_table where id in (select column_value from table(:1))",
+    &[&ids],
+)?;
+```
+
+Binding the type itself binds a NULL of that type. This is also how an OUT
+bind of an object or collection is declared:
+
+```rust
+let mut result = conn.execute_named(
+    "begin :point := my_package.make_point(1.5, -2); end;",
+    &[("point", &point_type)],
+)?;
+let point: Option<oracledb::DbObject> = result.out_bind_data().take("point")?;
+```
+
+The keys of an associative array are kept in ascending order and are returned
+by [DbCollection::keys()](crate::DbCollection::keys), for values that are
+bound and for values that are fetched.
+
+An object or collection bind always carries its type: binding
+`DB_TYPE_OBJECT` alone fails with `ErrorKind::MissingDbObjectType` before
+anything is sent. Attributes of LOB, BFILE and other types that cannot be
+written in an object image can only be NULL
+(`ErrorKind::UnsupportedDbObjectAttributeType`). Instances of subtypes (types
+declared `UNDER` another type) cannot be created, and fetching one fails with
+`ErrorKind::UnsupportedDbObjectSubtype`; values of a `NOT FINAL` type itself
+are supported. CHAR and NCHAR attributes are stored as given, without
+blank-padding.
