@@ -38,6 +38,7 @@ pub(crate) struct StatementOptions {
     fetch_lobs: bool,
     autocommit: bool,
     batch_errors: bool,
+    lob_prefetch_size: u32,
     #[cfg(feature = "arrow")]
     requested_schema: Option<SchemaRef>,
     #[cfg(feature = "arrow")]
@@ -73,6 +74,13 @@ impl StatementOptions {
         self.fetch_lobs
     }
 
+    /// Returns the configured LOB prefetch size: the number of characters
+    /// (UCS-2 units) of a CLOB or NCLOB, or bytes of a BLOB, that the
+    /// database returns with each LOB locator that is fetched.
+    pub(crate) fn lob_prefetch_size(&self) -> u32 {
+        self.lob_prefetch_size
+    }
+
     /// Creates a new structure and returns it.
     pub(crate) fn new() -> StatementOptions {
         StatementOptions {
@@ -81,6 +89,7 @@ impl StatementOptions {
             fetch_lobs: false,
             autocommit: false,
             batch_errors: false,
+            lob_prefetch_size: 0,
             #[cfg(feature = "arrow")]
             requested_schema: None,
             #[cfg(feature = "arrow")]
@@ -125,6 +134,11 @@ impl StatementOptions {
     /// Specifies that LOBs should be fetched instead of strings/vectors.
     pub(crate) fn set_fetch_lobs(&mut self) {
         self.fetch_lobs = true;
+    }
+
+    /// Sets the LOB prefetch size.
+    pub(crate) fn set_lob_prefetch_size(&mut self, value: u32) {
+        self.lob_prefetch_size = value;
     }
 
     /// Sets the number of rows to prefetch with the initial execution of the

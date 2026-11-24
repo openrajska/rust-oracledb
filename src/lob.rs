@@ -51,6 +51,11 @@ use std::io;
 /// or Rust `char` counts. Supplemental characters use two Oracle units.
 /// Decoding to UTF-8 can expand the data, so reads need a large enough caller
 /// buffer and writes need complete UTF-8 in each call.
+///
+/// A LOB fetched by a query with a LOB prefetch size (see
+/// [`StatementBuilder::lob_prefetch_size`](crate::StatementBuilder::lob_prefetch_size))
+/// arrives with its first characters or bytes: a read that falls within them
+/// needs no round trip. Writing or trimming the LOB drops them.
 pub struct Lob {
     client_ref: ClientRef,
     locator: Vec<u8>,
@@ -58,6 +63,7 @@ pub struct Lob {
     size: Option<usize>,
     chunk_size: Option<usize>,
     offset: usize,
+    prefetched: Option<Vec<u8>>,
 }
 
 pub(crate) struct PendingLobData {
@@ -65,6 +71,7 @@ pub(crate) struct PendingLobData {
     db_type: &'static DbType,
     locator: Vec<u8>,
     size: Option<usize>,
+    prefetched: Option<Vec<u8>>,
 }
 
 impl PendingLobData {
@@ -73,13 +80,22 @@ impl PendingLobData {
         db_type: &'static DbType,
         locator: Vec<u8>,
     ) -> Self {
-        Self { chunk_size: None, db_type, locator, size: None }
+        Self {
+            chunk_size: None,
+            db_type,
+            locator,
+            size: None,
+            prefetched: None,
+        }
     }
 
-    /// Deserializes LOB data from a database response.
+    /// Deserializes LOB data from a database response. When `prefetch` is
+    /// set, the define of the column requested a LOB prefetch size and the
+    /// data the database prefetched precedes the locator.
     pub(crate) fn from_resp(
         resp: &mut Response,
         db_type: &'static DbType,
+        prefetch: bool,
     ) -> Result<Option<Self>, Error> {
         let non_null_indicator = resp.read_ub4()?;
         if non_null_indicator == 0 {
@@ -93,10 +109,44 @@ impl PendingLobData {
                     Some(resp.read_ub4()?.try_into().unwrap()),
                 )
             };
+            let prefetched = if prefetch {
+                Self::read_prefetched(resp, db_type)?
+            } else {
+                None
+            };
             // LOB locators are returned as a length-encoded byte sequence.
             let locator = resp.read_bytes_with_length()?.into_owned();
-            Ok(Some(Self { chunk_size, db_type, locator, size }))
+            Ok(Some(Self { chunk_size, db_type, locator, size, prefetched }))
         }
+    }
+
+    /// Reads the data the database prefetched with a LOB locator: the first
+    /// characters of a CLOB / NCLOB (preceded by their character set) or
+    /// bytes of a BLOB, up to the LOB prefetch size. Character data is kept
+    /// only when it is UTF-16, the encoding of a character LOB locator in a
+    /// Unicode database; otherwise it is dropped and reads go to the
+    /// database.
+    fn read_prefetched(
+        resp: &mut Response,
+        db_type: &'static DbType,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        let is_utf16 = if db_type.ora_type_num == constants::ORA_TYPE_NUM_CLOB
+        {
+            let charset_id = if resp.read_u8()? == 1 {
+                Some(resp.read_ub2()?)
+            } else {
+                None
+            };
+            let csfrm = resp.read_u8()?;
+            match charset_id {
+                Some(charset_id) => charset_id == constants::CHARSET_ID_UTF16,
+                None => csfrm == constants::CS_FORM_NCHAR,
+            }
+        } else {
+            true
+        };
+        let data = resp.read_bytes_with_length()?;
+        Ok(is_utf16.then(|| data.into_owned()))
     }
 
     /// Returns the locator.
@@ -113,6 +163,7 @@ impl fmt::Debug for Lob {
             .field("size", &self.size)
             .field("chunk_size", &self.chunk_size)
             .field("offset", &self.offset)
+            .field("prefetched_len", &self.prefetched.as_ref().map(Vec::len))
             .finish()
     }
 }
@@ -180,17 +231,40 @@ impl Lob {
         Ok(message)
     }
 
-    /// Reads data from the LOB at the specified Oracle offset.
+    /// Reads data from the LOB at the specified Oracle offset: from the data
+    /// prefetched with the locator when it holds the whole range, else from
+    /// the database.
     fn read_at(
         &mut self,
         offset: usize,
         amount: usize,
     ) -> Result<Vec<u8>, Error> {
+        if let Some(data) = self.prefetched_range(offset, amount) {
+            return Ok(data.to_vec());
+        }
         let mut message = self.process_lob_op(LobOp::Read(
             offset.try_into().unwrap(),
             amount.try_into().unwrap(),
         ))?;
         Ok(message.take_data())
+    }
+
+    /// Returns the bytes of the prefetched data for the range of `amount`
+    /// characters (UCS-2 units) or bytes at the Oracle offset, or `None` when
+    /// the prefetched data does not hold the whole range.
+    fn prefetched_range(&self, offset: usize, amount: usize) -> Option<&[u8]> {
+        let data = self.prefetched.as_deref()?;
+        let width = if self.is_character_lob() {
+            if !matches!(self.string_encoding(), LobStringEncoding::Utf16Be) {
+                return None;
+            }
+            2
+        } else {
+            1
+        };
+        let start = offset.checked_sub(1)?.checked_mul(width)?;
+        let end = start.checked_add(amount.checked_mul(width)?)?;
+        data.get(start..end)
     }
 
     /// Determines the string encoding used by the current LOB locator.
@@ -217,6 +291,7 @@ impl Lob {
     ) -> Result<(), Error> {
         self.process_lob_op(LobOp::Write(offset.try_into().unwrap(), data))?;
         self.size = None;
+        self.prefetched = None;
         Ok(())
     }
 
@@ -252,6 +327,7 @@ impl Lob {
             size: Some(0),
             chunk_size: None,
             offset: 1,
+            prefetched: None,
         })
     }
 
@@ -264,6 +340,7 @@ impl Lob {
             size: data.size,
             chunk_size: data.chunk_size,
             offset: 1,
+            prefetched: data.prefetched,
         }
     }
 
@@ -331,6 +408,7 @@ impl Lob {
         }
         self.process_lob_op(LobOp::Trim(new_size.try_into().unwrap()))?;
         self.size = Some(new_size);
+        self.prefetched = None;
         if self.offset > new_size + 1 {
             self.offset = new_size + 1;
         }
