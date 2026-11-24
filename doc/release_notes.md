@@ -24,6 +24,16 @@
 1.  Use `debug_struct()` for `Error` so that the cause is not lost when
     debugging errors
     ([issue 76](https://github.com/oracle/rust-oracledb/issues/76)).
+1.  Added support for binding objects, collections and PL/SQL associative
+    arrays IN, OUT and IN/OUT. Values are built with
+    [DbObject::new()](crate::DbObject::new) and
+    [DbCollection::new()](crate::DbCollection::new); binding an
+    `Arc<DbObjectType>` binds a NULL of that type. The keys of associative
+    arrays are returned by [DbCollection::keys()](crate::DbCollection::keys).
+    A `DB_TYPE_OBJECT` bind without its type now fails before it is sent.
+1.  Fixed a panic when fetching an object with an attribute of a `NOT FINAL`
+    type. Fetching an instance of an object subtype now returns an error
+    instead of losing the subtype's attributes.
 
 
 ## rust-oracledb 26.0.0-beta.6 (November 12, 2026)

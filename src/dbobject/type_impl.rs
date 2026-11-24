@@ -95,6 +95,8 @@ pub(super) struct DbObjectTypeBody {
     pub(super) oid: Vec<u8>,
     pub(super) version: u16,
     pub(super) collection_type: Option<u8>,
+    pub(super) is_final: bool,
+    pub(super) is_subtype: bool,
 }
 
 impl fmt::Debug for DbObjectType {
@@ -166,6 +168,24 @@ impl DbObjectType {
     /// Reports whether the resolved type is a collection.
     pub fn is_collection(&self) -> bool {
         self.body().element.is_some()
+    }
+
+    /// Reports whether the resolved type is a PL/SQL associative array
+    /// (INDEX BY).
+    pub fn is_associative_array(&self) -> bool {
+        self.collection_type()
+            == Some(super::object::TTC_OBJ_PLSQL_INDEX_TABLE)
+    }
+
+    /// Reports whether the type is FINAL. An attribute of a NOT FINAL type
+    /// is substitutable: the server sends it as an image of its own.
+    pub(crate) fn is_final(&self) -> bool {
+        self.body().is_final
+    }
+
+    /// Reports whether the type is a subtype (declared UNDER another type).
+    pub(crate) fn is_subtype(&self) -> bool {
+        self.body().is_subtype
     }
 
     /// Returns the database type name.
