@@ -752,6 +752,12 @@ impl ToDbValue for JsonValue {
     }
 }
 
+impl ToDbValue for Lob {
+    fn db_type(&self) -> &'static DbType {
+        self.db_type()
+    }
+}
+
 impl ToDbValue for OracleIntervalDS {
     fn db_type(&self) -> &'static DbType {
         crate::DB_TYPE_INTERVAL_DS

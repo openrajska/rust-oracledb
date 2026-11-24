@@ -174,6 +174,8 @@ instead of the mouse.
 
    9.2 [Inserting and Querying Using LOB Locator](#loblocator)
 
+   9.3 [Binding LOBs](#bindlobs)
+
 10. [Using JSON Data](#jsondatatype)
 
     10.1 [Inserting Oracle Database JSON Type](#insertjsondatatype)

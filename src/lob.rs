@@ -33,6 +33,8 @@ use crate::error::Error;
 use crate::messages::{LobOp, LobOpMessage};
 use crate::response::Response;
 use crate::utils;
+use crate::write_buffer::ToBuf;
+use crate::write_buffer::WriteBuffer;
 use std::borrow::Cow;
 use std::fmt;
 use std::io;
@@ -345,6 +347,21 @@ impl Drop for Lob {
         if let Ok(mut client) = self.client_ref.lock() {
             client.add_lob_to_close(locator);
         }
+    }
+}
+
+/// Writes the LOB locator as a bind value, so that a LOB (a temporary LOB or
+/// one fetched from the database) binds IN to SQL and PL/SQL. Only the
+/// locator is sent: the data stays on the server.
+impl ToBuf for Lob {
+    fn to_buf(
+        &self,
+        buf: &mut WriteBuffer,
+        _db_type: &'static DbType,
+        _write_length: bool,
+    ) {
+        buf.write_ub4(self.locator.len().try_into().unwrap());
+        buf.write_bytes_with_length(&self.locator);
     }
 }
 
