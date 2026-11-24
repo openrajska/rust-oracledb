@@ -156,6 +156,8 @@ The suite needs an Oracle database and these environment variables (see
 | `RSO_TEST_MAIN_PASSWORD` | any password for the test user `rsotest` |
 | `RSO_TEST_PROXY_PASSWORD` | any password for the proxy user `rsotestproxy` |
 | `RSO_TEST_DIRECTORY_NAME` | optional; a DIRECTORY for the BFILE tests |
+| `RSO_TEST_TLS_CONNECT_STRING` / `RSO_TEST_MTLS_CONNECT_STRING` | optional; `tcps://localhost:2484/FREEPDB1` / `tcps://localhost:2485/FREEPDB1`, the listeners of [`.rajska/tls`](.rajska/tls/README.md) |
+| `RSO_TEST_TLS_WALLETS` | optional; `.rajska/tls/client`, the client wallets for those listeners |
 | `RUST_TEST_THREADS` | `1` (see below) |
 
 ```bash
