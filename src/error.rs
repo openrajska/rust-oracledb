@@ -47,6 +47,7 @@ pub enum ErrorKind {
     CannotStoreDbObjectValue(String, String, String),
     ColumnTruncated(usize, usize),
     DbError(DbError),
+    DbObjectTypeChanged(String),
     DbObjectTypeUnavailable,
     DeadConnection,
     DifferentTypes(&'static DbType, &'static DbType),
@@ -229,6 +230,11 @@ impl fmt::Display for Error {
             ErrorKind::DbError(db_error) => {
                 fmt.write_str(db_error.message())?
             }
+            ErrorKind::DbObjectTypeChanged(name) => write!(
+                fmt,
+                "database object type {name} has changed since this \
+                 connection described it"
+            )?,
             ErrorKind::DbObjectTypeUnavailable => {
                 fmt.write_str("database object type is no longer available")?
             }
@@ -585,6 +591,12 @@ impl Error {
 
     pub(crate) fn db_error(db_error: DbError) -> Error {
         Error::new(ErrorKind::DbError(db_error), None)
+    }
+
+    /// Returns an error for a value of a type altered (ALTER TYPE) after the
+    /// connection described it.
+    pub(crate) fn db_object_type_changed(name: String) -> Error {
+        Error::new(ErrorKind::DbObjectTypeChanged(name), None)
     }
 
     /// Returns an error for a nested type whose last strong owner was dropped.

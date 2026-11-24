@@ -62,6 +62,9 @@ const TTC_OBJ_NON_NULL_OID: u8 = 0x02;
 const TTC_OBJ_HAS_EXTENT_OID: u8 = 0x08;
 const TTC_OBJ_EXTENT_OID: [u8; 16] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1];
+const TTC_OBJ_PREFIX_HAS_TYPE_OID: u8 = 0x04;
+const TTC_OBJ_PREFIX_HAS_VERSION: u8 = 0x10;
+const TTC_OBJ_TYPE_OID_LENGTH: usize = 16;
 
 #[derive(Debug)]
 /// A fetched database collection.
@@ -435,16 +438,18 @@ impl DbObjectReadBuffer<'_> {
             ));
         }
         if flags & TTC_OBJ_NO_PREFIX_SEG == 0 {
-            // an object (not a collection) has a prefix segment only when it
-            // is an instance of a subtype: the segment names that subtype,
-            // whose attributes follow the declared type's ones
-            if !object_type.is_collection() {
+            let length = self.read_length()?;
+            let prefix =
+                ImagePrefix::parse(self.buf.read_bytes(length)?, object_type)?;
+            // a prefix segment naming a type is an instance of a type in an
+            // inheritance hierarchy: the attributes of a subtype follow the
+            // declared type's ones
+            if prefix.type_oid.is_some() {
                 return Err(Error::unsupported_db_object_subtype(
                     object_type.fqn(),
                 ));
             }
-            let length = self.read_length()?;
-            let _prefix_seg = self.buf.read_bytes(length)?;
+            prefix.check_version(object_type)?;
         }
         self.decode_body(object_type)
     }
@@ -605,6 +610,70 @@ impl DbObjectReadBuffer<'_> {
             Ok(self.buf.read_u32be()? as usize)
         } else {
             Ok(length as usize)
+        }
+    }
+}
+
+/// The prefix segment of an object or collection image.
+///
+/// The server sends one in two cases: the value is an instance of a type
+/// altered by ALTER TYPE, and the segment holds the version of the type the
+/// image was built with; or the value is an instance of a type in an
+/// inheritance hierarchy, and the segment holds the OID of the instance's
+/// type, followed by its version once that type was altered. The segment
+/// starts with a flags byte saying which of the two it holds.
+struct ImagePrefix<'a> {
+    type_oid: Option<&'a [u8]>,
+    version: Option<u16>,
+}
+
+impl<'a> ImagePrefix<'a> {
+    /// Parses a prefix segment of an image of the given type.
+    fn parse(
+        segment: &'a [u8],
+        object_type: &DbObjectType,
+    ) -> Result<Self, Error> {
+        let unknown = || {
+            Error::not_implemented(format!(
+                "image of database object type {} with prefix segment \
+                 {segment:02x?}",
+                object_type.fqn()
+            ))
+        };
+        let (&flags, mut rest) = segment.split_first().ok_or_else(unknown)?;
+        let mut type_oid = None;
+        if flags & TTC_OBJ_PREFIX_HAS_TYPE_OID != 0 {
+            let (oid, tail) = rest
+                .split_at_checked(TTC_OBJ_TYPE_OID_LENGTH)
+                .ok_or_else(unknown)?;
+            type_oid = Some(oid);
+            rest = tail;
+        }
+        let mut version = None;
+        if flags & TTC_OBJ_PREFIX_HAS_VERSION != 0 {
+            let (bytes, tail) =
+                rest.split_first_chunk::<2>().ok_or_else(unknown)?;
+            version = Some(u16::from_be_bytes(*bytes));
+            rest = tail;
+        }
+        if !rest.is_empty() {
+            return Err(unknown());
+        }
+        Ok(Self { type_oid, version })
+    }
+
+    /// Fails when the image was built with another version of the type than
+    /// the one the connection described: decoding it with that description
+    /// would misread the attributes. Only checked when the image is of the
+    /// described type itself, not of a subtype.
+    fn check_version(&self, object_type: &DbObjectType) -> Result<(), Error> {
+        let same_type =
+            self.type_oid.is_none_or(|type_oid| type_oid == object_type.oid());
+        match self.version {
+            Some(version) if same_type && version != object_type.version() => {
+                Err(Error::db_object_type_changed(object_type.fqn()))
+            }
+            _ => Ok(()),
         }
     }
 }
