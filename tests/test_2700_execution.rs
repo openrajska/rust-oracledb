@@ -894,3 +894,62 @@ fn test_2732() -> Result<(), oracledb::Error> {
     );
     Ok(())
 }
+
+#[rstest]
+/// Tests that a cached query re-executed with a bind of another type returns
+/// the value and the column type of the new bind, in both orders.
+fn test_2733(conn: oracledb::Connection) -> Result<(), oracledb::Error> {
+    let sql = "select :1 from dual";
+    for _ in 0..2 {
+        let row = conn.query_row(sql, &[&1])?;
+        assert_eq!(row.columns()[0].db_type(), oracledb::DB_TYPE_NUMBER);
+        assert_eq!(row.get::<i32>(0)?, 1);
+        let row = conn.query_row(sql, &[&"x"])?;
+        assert_eq!(row.columns()[0].db_type(), oracledb::DB_TYPE_VARCHAR);
+        assert_eq!(row.get::<String>(0)?, "x");
+    }
+    let sql = "select :value from dual";
+    for _ in 0..2 {
+        let row = conn.query_row_named(sql, &[("value", &"y")])?;
+        assert_eq!(row.columns()[0].db_type(), oracledb::DB_TYPE_VARCHAR);
+        assert_eq!(row.get::<String>(0)?, "y");
+        let row = conn.query_row_named(sql, &[("value", &2)])?;
+        assert_eq!(row.columns()[0].db_type(), oracledb::DB_TYPE_NUMBER);
+        assert_eq!(row.get::<i32>(0)?, 2);
+    }
+    Ok(())
+}
+
+#[rstest]
+/// Tests that a cached query re-executed with a longer string bind returns
+/// the whole value, with positional and named binds.
+fn test_2734(conn: oracledb::Connection) -> Result<(), oracledb::Error> {
+    for (sql, lengths) in [
+        ("select :1 from dual", [10, 16000]),
+        ("select :1 as value from dual", [100, 16000]),
+        ("select :1 || null from dual", [4000, 32767]),
+    ] {
+        for length in lengths {
+            let value = "x".repeat(length);
+            let row = conn.query_row(sql, &[&value])?;
+            assert_eq!(row.get::<String>(0)?.len(), length, "{sql}");
+        }
+    }
+    for (sql, lengths) in [
+        ("select :value from dual", [10, 16000]),
+        ("select :value as value from dual", [100, 16000]),
+        ("select :value || null from dual", [4000, 32767]),
+    ] {
+        for length in lengths {
+            let value = "x".repeat(length);
+            let statement = conn
+                .statement(sql)?
+                .prefetch_rows(101)
+                .fetch_array_size(100)
+                .build()?;
+            let row = statement.query_row_named(&[("value", &value)])?;
+            assert_eq!(row.get::<String>(0)?.len(), length, "{sql}");
+        }
+    }
+    Ok(())
+}
