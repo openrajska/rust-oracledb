@@ -24,6 +24,10 @@
 1.  Use `debug_struct()` for `Error` so that the cause is not lost when
     debugging errors
     ([issue 76](https://github.com/oracle/rust-oracledb/issues/76)).
+1.  Fixed bug where fetching a CLOB, NCLOB or BLOB column of a REF CURSOR or
+    of a nested cursor failed with "read integer of length ... when expecting
+    an integer of no more than length 8". The first fetch of such a cursor
+    now sends the define that its LOB columns need.
 
 
 ## rust-oracledb 26.0.0-beta.6 (November 12, 2026)

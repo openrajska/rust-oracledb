@@ -42,6 +42,7 @@ use crate::write_buffer::WriteBuffer;
 pub struct ExecuteMessage<'statement, 'params> {
     scroll_operation: bool,
     parse_only: bool,
+    define_fetch: bool,
     batch_errors: bool,
     array_dml_row_counts: bool,
     renegotiation_needed: bool,
@@ -113,7 +114,11 @@ impl ExecuteMessage<'_, '_> {
             if self.parse_only {
                 options |= constants::TTC_EXEC_OPTION_DESCRIBE;
             } else {
-                if !statement.has_cursor() || statement.requires_define() {
+                if self.define_fetch {
+                    num_iters = self.statement.options().fetch_array_size();
+                } else if !statement.has_cursor()
+                    || statement.requires_define()
+                {
                     num_iters = self.statement.options().prefetch_rows();
                 } else {
                     num_iters = self.statement.options().fetch_array_size();
@@ -293,6 +298,7 @@ impl ExecuteMessage<'_, '_> {
     ) -> ExecuteMessage<'statement, 'params> {
         ExecuteMessage {
             parse_only,
+            define_fetch: false,
             scroll_operation: false,
             batch_errors: false,
             array_dml_row_counts: false,
@@ -305,6 +311,22 @@ impl ExecuteMessage<'_, '_> {
             statement,
             params,
         }
+    }
+
+    /// Creates a message that sends the define of a cursor that the database
+    /// opened and described, such as a REF CURSOR or a nested cursor, and
+    /// fetches its first rows. Such a cursor is fetched without being
+    /// executed, so the define its LOB columns need is sent with its first
+    /// fetch instead.
+    pub(crate) fn new_define_fetch(
+        statement: &mut CachedStatement,
+    ) -> ExecuteMessage<'_, '_> {
+        let num_fetch_columns = statement.out_metadata().len();
+        let mut message =
+            Self::new(statement, BindParameters::default(), false);
+        message.define_fetch = true;
+        message.num_fetch_columns = num_fetch_columns.try_into().unwrap();
+        message
     }
 }
 
@@ -394,8 +416,10 @@ impl Message for ExecuteMessage<'_, '_> {
         client: &mut Client,
         resp: &mut Response,
     ) -> Result<(), Error> {
-        self.statement.set_cursor_id(resp.get_cursor_id());
-        self.statement.set_binds_not_changed();
+        if !self.define_fetch {
+            self.statement.set_cursor_id(resp.get_cursor_id());
+            self.statement.set_binds_not_changed();
+        }
         resp.check_for_statement_error(client, self.statement)
     }
 
@@ -413,7 +437,7 @@ impl Message for ExecuteMessage<'_, '_> {
     }
 
     fn resend_needed(&self) -> bool {
-        self.statement.requires_define()
+        self.statement.requires_define() && !self.define_fetch
     }
 
     fn serialize(&self, client: &Client, buf: &mut WriteBuffer) {
