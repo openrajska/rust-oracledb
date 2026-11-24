@@ -24,6 +24,13 @@
 1.  Use `debug_struct()` for `Error` so that the cause is not lost when
     debugging errors
     ([issue 76](https://github.com/oracle/rust-oracledb/issues/76)).
+1.  Fixed bug where a data packet ending with the end of response message
+    type, or starting with the renegotiation message type, was taken for the
+    end of the response: the response was then assembled and parsed again for
+    each such packet, so that a large LOB read or fetch could take time
+    quadratic in its size.
+1.  Improved performance of large responses and LOB reads by copying their
+    data fewer times.
 
 
 ## rust-oracledb 26.0.0-beta.6 (November 12, 2026)
