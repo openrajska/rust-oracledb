@@ -95,6 +95,29 @@ impl DbRow {
         Ok(())
     }
 
+    /// Finalizes the array at the specified index, as found in DML RETURNING
+    /// binds, by transforming each pending element, taken in order from the
+    /// supplied values, into the actual database value presented to callers.
+    pub(crate) fn finalize_array_column(
+        &mut self,
+        index: usize,
+        client: &Client,
+        client_ref: &ClientRef,
+        values: &mut impl Iterator<Item = Option<PendingDbValue>>,
+        metadata: &Metadata,
+    ) -> Result<(), Error> {
+        if let Some(DbValue::Array(array)) = &mut self.column_values[index] {
+            for element in array.column_values.iter_mut() {
+                if let Some(data) = values.next().unwrap() {
+                    *element = Some(
+                        data.try_into_db_value(client, client_ref, metadata)?,
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Returns the element at the given index, or an error.
     pub(crate) fn get(&self, index: usize) -> Result<&Option<DbValue>, Error> {
         self.column_values
