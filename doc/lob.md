@@ -102,7 +102,25 @@ This prints the following output:
 BLOB bytes: [10, 20, 30, 40, 255]
 ```
 
-## <a name="bfile"></a> 9.3 Reading BFILEs
+## <a name="bindlobs"></a> 9.3 Binding LOBs
+
+An `oracledb::Lob` binds IN to SQL and PL/SQL: only its locator is sent and
+the data stays in the database. This is the way to pass more than 32767 bytes
+to a PL/SQL CLOB or BLOB parameter, which a `String` or `Vec<u8>` bind cannot
+do. Create a temporary LOB with
+[Connection::create_lob()](crate::Connection::create_lob), write the data to
+it, and bind it:
+
+```rust
+let mut clob = connection.create_lob(oracledb::DB_TYPE_CLOB)?;
+clob.write_all(text_data.as_bytes())?;
+connection.execute("begin my_proc(:1); end;", &[&clob])?;
+```
+
+A LOB fetched with `fetch_lobs()` binds the same way. To bind a NULL LOB, bind
+the type, for example `&oracledb::DB_TYPE_CLOB`.
+
+## <a name="bfile"></a> 9.4 Reading BFILEs
 
 A BFILE refers to a file on the database server through a DIRECTORY
 object. It is always fetched as an `oracledb::Lob` locator, including when
