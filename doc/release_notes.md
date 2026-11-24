@@ -24,6 +24,11 @@
 1.  Use `debug_struct()` for `Error` so that the cause is not lost when
     debugging errors
     ([issue 76](https://github.com/oracle/rust-oracledb/issues/76)).
+1.  Added support for binding [Lob](crate::Lob) values IN to SQL and PL/SQL,
+    so that a temporary LOB created with
+    [Connection::create_lob()](crate::Connection::create_lob) or a fetched
+    LOB locator can be passed to a statement, including LOB data over 32767
+    bytes to a PL/SQL parameter.
 
 
 ## rust-oracledb 26.0.0-beta.6 (November 12, 2026)
