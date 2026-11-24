@@ -24,6 +24,10 @@
 1.  Use `debug_struct()` for `Error` so that the cause is not lost when
     debugging errors
     ([issue 76](https://github.com/oracle/rust-oracledb/issues/76)).
+1.  Fixed bug when a query in the statement cache is executed again with
+    bind values of a different type or a longer length: the statement is now
+    parsed again, instead of returning data converted or truncated to fit the
+    columns described for the previous bind values.
 
 
 ## rust-oracledb 26.0.0-beta.6 (November 12, 2026)

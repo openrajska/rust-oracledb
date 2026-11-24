@@ -805,6 +805,17 @@ impl Client {
             final_resp.transfer_info(&mut initial_resp);
             Ok(final_resp)
         } else {
+            // the columns of a query can depend on the type and size of its
+            // binds, but the database does not describe an open cursor again
+            // when the bind metadata changes; it keeps the previous columns
+            // and converts or truncates the data to fit them, so the cursor is
+            // closed and the statement parsed again instead
+            if statement.is_query()
+                && statement.has_cursor()
+                && statement.binds_changed()
+            {
+                self.close_cursor(statement);
+            }
             let mut message =
                 ExecuteMessage::new(statement, params, parse_only);
             let mut response = self.process_message(&mut message)?;
