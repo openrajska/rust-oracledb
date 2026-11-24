@@ -190,6 +190,8 @@ struct DbObjectParsedTdsAttr {
     max_size: u32,
     precision: u8,
     scale: i8,
+    /// The fields of an object stored inline in the enclosing image.
+    embedded: Option<Vec<DbObjectParsedTdsAttr>>,
 }
 
 /// Returns the driver datatype corresponding to a dictionary type name.
@@ -558,6 +560,7 @@ fn parse_tds_attr(
     let mut max_size = 0;
     let mut precision = 0;
     let mut scale = 0;
+    let mut embedded = None;
     let ora_type_num = match attr_type {
         TTC_OBJ_TDS_TYPE_NUMBER => {
             precision = input.read_i8()? as u8;
@@ -622,7 +625,11 @@ fn parse_tds_attr(
             }
         }
         TTC_OBJ_TDS_TYPE_START_EMBED_ADT => {
-            while parse_tds_attr(input)?.is_some() {}
+            let mut fields = Vec::new();
+            while let Some(field) = parse_tds_attr(input)? {
+                fields.push(field);
+            }
+            embedded = Some(fields);
             crate::constants::ORA_TYPE_NUM_OBJECT
         }
         TTC_OBJ_TDS_TYPE_END_EMBED_ADT => return Ok(None),
@@ -631,7 +638,34 @@ fn parse_tds_attr(
         }
     };
     let db_type = DbType::from_ora_type_and_csfrm(ora_type_num, csfrm);
-    Ok(Some(DbObjectParsedTdsAttr { db_type, max_size, precision, scale }))
+    Ok(Some(DbObjectParsedTdsAttr {
+        db_type,
+        max_size,
+        precision,
+        scale,
+        embedded,
+    }))
+}
+
+/// Reports whether an already described type still has the shape that a TDS
+/// gives for an object of that type stored inline: the same number of
+/// attributes, at every level of nesting. A type altered (ALTER TYPE) after
+/// it was described has another number of attributes, and its inline values
+/// carry no version to check while decoding.
+fn has_embedded_shape(
+    typ: &DbObjectType,
+    fields: &[DbObjectParsedTdsAttr],
+) -> bool {
+    let attrs = typ.attributes();
+    attrs.len() == fields.len()
+        && attrs.iter().zip(fields).all(|(attr, field)| {
+            match (attr.object_type(), &field.embedded) {
+                (Ok(Some(child)), Some(fields)) => {
+                    has_embedded_shape(&child, fields)
+                }
+                _ => true,
+            }
+        })
 }
 
 /// Reads the attribute rows returned by `DBMS_PICKLER.GET_TYPE_SHAPE`.
@@ -735,6 +769,16 @@ impl DbObjectTypeCache {
             metadata.resolve_object_type(|identity| {
                 Ok(self.get_or_create_partial(identity))
             })?;
+            let embedded = parsed
+                .as_ref()
+                .and_then(|parsed| parsed.attrs[index].embedded.as_deref());
+            if let (Some(fields), Ok(Some(child))) =
+                (embedded, metadata.object_type())
+                && child.is_fully_populated()
+                && !has_embedded_shape(&child, fields)
+            {
+                return Err(Error::db_object_type_changed(child.fqn()));
+            }
         }
         let collection_type =
             parsed.as_ref().and_then(|parsed| parsed.collection_type);
