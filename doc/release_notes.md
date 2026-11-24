@@ -24,6 +24,10 @@
 1.  Use `debug_struct()` for `Error` so that the cause is not lost when
     debugging errors
     ([issue 76](https://github.com/oracle/rust-oracledb/issues/76)).
+1.  Fixed bug where a database object of a type altered with ALTER TYPE
+    after the connection described it was read with the old attributes,
+    silently dropping or misreading values. Such values now return the new
+    error kind `ErrorKind::DbObjectTypeChanged`.
 
 
 ## rust-oracledb 26.0.0-beta.6 (November 12, 2026)
