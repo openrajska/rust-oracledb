@@ -472,3 +472,36 @@ fn test_2015(
     conn.rollback()?;
     Ok(())
 }
+
+#[rstest]
+/// Tests that a query executed with autocommit from the statement cache
+/// fetches as many rows in its execute as one executed without autocommit,
+/// so a result that fits in the prefetch costs one round trip either way.
+fn test_2016(
+    admin_conn: oracledb::Connection,
+    conn: oracledb::Connection,
+) -> Result<(), oracledb::Error> {
+    let sql = "select level from dual connect by level <= 2";
+    for autocommit in [false, true] {
+        for execution in 0..2 {
+            let mut builder =
+                conn.statement(sql)?.prefetch_rows(3).fetch_array_size(2);
+            if autocommit {
+                builder = builder.autocommit();
+            }
+            let before = round_trips(&admin_conn, &conn)?;
+            let rows = builder
+                .build()?
+                .query(&[])?
+                .map(|row| row?.get::<i32>(0))
+                .collect::<Result<Vec<_>, _>>()?;
+            assert_eq!(rows, [1, 2]);
+            assert_eq!(
+                round_trips(&admin_conn, &conn)? - before,
+                1,
+                "autocommit: {autocommit}, execution: {execution}"
+            );
+        }
+    }
+    Ok(())
+}
