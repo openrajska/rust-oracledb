@@ -132,6 +132,23 @@ impl Lob {
         }
     }
 
+    /// Returns whether character LOB data ends with the high (first) unit of
+    /// a UTF-16 surrogate pair.
+    fn ends_with_high_surrogate(
+        bytes: &[u8],
+        encoding: LobStringEncoding,
+    ) -> bool {
+        let Some(&[first, second]) = bytes.last_chunk::<2>() else {
+            return false;
+        };
+        let unit = match encoding {
+            LobStringEncoding::Utf8 => return false,
+            LobStringEncoding::Utf16Be => u16::from_be_bytes([first, second]),
+            LobStringEncoding::Utf16Le => u16::from_le_bytes([first, second]),
+        };
+        (0xD800..=0xDBFF).contains(&unit)
+    }
+
     /// Converts a driver error into an I/O error for trait implementations.
     fn io_error(error: Error) -> io::Error {
         io::Error::other(error)
@@ -335,7 +352,10 @@ impl Drop for Lob {
 ///
 /// For CLOB/NCLOB data, Oracle offsets and amounts use UCS-2 units. If UTF-8
 /// expansion makes the decoded data larger than `buf`, `read()` returns
-/// `InvalidInput` without advancing the LOB offset.
+/// `InvalidInput` without advancing the LOB offset. A read never splits a
+/// supplemental character (a surrogate pair of two units): when the amount
+/// requested ends on its first unit, the read stops before it, or reads the
+/// whole pair when that unit is the only one requested.
 impl io::Read for Lob {
     /// Reads bytes from the current LOB stream position into `buf`.
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
@@ -363,8 +383,21 @@ impl io::Read for Lob {
         if explicitly_opened {
             self.open().map_err(Self::io_error)?;
         }
-        let bytes =
+        let mut bytes =
             self.read_at(self.offset, amount).map_err(Self::io_error)?;
+        if is_character_lob
+            && Self::ends_with_high_surrogate(&bytes, self.string_encoding())
+        {
+            // The read stopped between the two units of a surrogate pair.
+            // Leave the high surrogate for the next read or, when it is the
+            // only unit read, read the whole pair.
+            if amount > 1 {
+                bytes.truncate(bytes.len() - 2);
+            } else if remaining > 1 {
+                bytes =
+                    self.read_at(self.offset, 2).map_err(Self::io_error)?;
+            }
+        }
         if explicitly_opened {
             self.close().map_err(Self::io_error)?;
         }
