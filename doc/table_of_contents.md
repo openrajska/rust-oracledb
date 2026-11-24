@@ -151,6 +151,7 @@ instead of the mouse.
    6.1 [Batch Statement Execution](#batchstmntexec)
    - 6.1.1 [Batch Execution of SQL](#batchstmntexecsql)
    - 6.1.2 [Batch Execution of PL/SQL](#batchplsql)
+   - 6.1.3 [Handling Data Errors](#batcherrors)
 
    6.2 [Identifying Affected Rows](#identifyaffectedrows)
 

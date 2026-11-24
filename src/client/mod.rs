@@ -227,7 +227,7 @@ impl Client {
         }
         if response.get_flush_out_binds() {
             self.send_message(&mut FlushOutBindsMessage)?;
-            response.add_packets(self.receive_packets()?);
+            response.add_packets_after_flush(self.receive_packets()?);
             message.deserialize(self, response)?;
         }
         message.post_deserialize(self, response)?;

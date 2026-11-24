@@ -301,10 +301,15 @@ impl ExecuteMessage<'_, '_> {
         parse_only: bool,
         autocommit: bool,
     ) -> ExecuteMessage<'statement, 'params> {
+        // batch errors apply only to DML; other statements stop at the first
+        // error as usual
+        let batch_errors = statement.options().batch_errors()
+            && statement.is_dml()
+            && !parse_only;
         ExecuteMessage {
             parse_only,
             scroll_operation: false,
-            batch_errors: false,
+            batch_errors,
             array_dml_row_counts: false,
             renegotiation_needed: false,
             num_execs: params.num_rows().try_into().unwrap(),
@@ -456,7 +461,8 @@ impl Message for ExecuteMessage<'_, '_> {
         // a query with autocommit always uses the full execute: there the
         // server fetches the first rows before it commits, whereas a commit
         // in a re-execute and fetch comes before the fetch, which then fails
-        // with ORA-01002 for SELECT ... FOR UPDATE
+        // with ORA-01002 for SELECT ... FOR UPDATE. The re-execute also has
+        // no option for batch errors.
         if !self.statement.has_cursor()
             || self.statement.no_prefetch()
             || self.statement.binds_changed()
@@ -464,6 +470,7 @@ impl Message for ExecuteMessage<'_, '_> {
             || self.statement.requires_define()
             || self.statement.is_ddl()
             || (self.autocommit && self.statement.is_query())
+            || self.batch_errors
         {
             self.write_full_execute(client, buf);
         } else {

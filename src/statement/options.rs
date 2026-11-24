@@ -37,6 +37,7 @@ pub(crate) struct StatementOptions {
     fetch_array_size: u32,
     fetch_lobs: bool,
     autocommit: bool,
+    batch_errors: bool,
     #[cfg(feature = "arrow")]
     requested_schema: Option<SchemaRef>,
     #[cfg(feature = "arrow")]
@@ -53,6 +54,12 @@ impl StatementOptions {
     /// same round trip.
     pub(crate) fn autocommit(&self) -> bool {
         self.autocommit
+    }
+
+    /// Returns whether the errors of the rows of a batch are returned instead
+    /// of stopping the batch at the first error.
+    pub(crate) fn batch_errors(&self) -> bool {
+        self.batch_errors
     }
 
     /// Returns the configured fetch array size.
@@ -73,6 +80,7 @@ impl StatementOptions {
             fetch_array_size: 100,
             fetch_lobs: false,
             autocommit: false,
+            batch_errors: false,
             #[cfg(feature = "arrow")]
             requested_schema: None,
             #[cfg(feature = "arrow")]
@@ -101,6 +109,12 @@ impl StatementOptions {
     /// same round trip.
     pub(crate) fn set_autocommit(&mut self) {
         self.autocommit = true;
+    }
+
+    /// Specifies that the errors of the rows of a batch are returned instead
+    /// of stopping the batch at the first error.
+    pub(crate) fn set_batch_errors(&mut self) {
+        self.batch_errors = true;
     }
 
     /// Sets the number of rows to fetch each time rows are fetched.

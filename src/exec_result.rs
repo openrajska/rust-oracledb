@@ -32,6 +32,7 @@ use std::sync::Arc;
 
 use crate::cursor::Cursor;
 use crate::metadata::Metadata;
+use crate::response::DbError;
 use crate::response::Response;
 use crate::row::{DbRow, Row};
 use crate::statement::CachedStatement;
@@ -129,9 +130,20 @@ pub struct ExecBatchResult {
     num_execs: usize,
     rows_affected: u64,
     implicit_results: Vec<Cursor>,
+    batch_errors: Vec<DbError>,
 }
 
 impl ExecBatchResult {
+    /// Returns the errors of the rows that failed, in row order, when the
+    /// statement was built with
+    /// [StatementBuilder::batch_errors()](crate::StatementBuilder::batch_errors()).
+    /// The [offset()](crate::DbError::offset()) of each error is the index of
+    /// its row in the batch, starting from zero. The slice is empty when no
+    /// row failed or when batch errors were not requested.
+    pub fn batch_errors(&self) -> &[DbError] {
+        &self.batch_errors
+    }
+
     pub(crate) fn new(
         statement: &CachedStatement,
         num_execs: usize,
@@ -157,6 +169,7 @@ impl ExecBatchResult {
             num_execs,
             rows_affected: resp.get_rowcount(),
             implicit_results: Vec::new(),
+            batch_errors: resp.take_batch_errors(),
         }
     }
 
