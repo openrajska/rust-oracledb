@@ -85,6 +85,28 @@ impl Connection {
         }
     }
 
+    /// Closes the connection like [Connection::close()], except that a pooled
+    /// connection is dropped from its pool instead of being returned to it.
+    /// The pool no longer counts it as busy, so it can create a new connection
+    /// in its place, and the pool's background thread closes the dropped one.
+    ///
+    /// Use it when the connection must never be used again although its
+    /// network connection is still open, for example after the session was
+    /// killed without IMMEDIATE (ORA-00028) or after an internal error
+    /// (ORA-00600). Returned to the pool, such a connection would be handed
+    /// out again. For a standalone connection this is the same as
+    /// [Connection::close()].
+    pub fn close_and_drop(&mut self) -> Result<(), Error> {
+        if let Some(pool_contents_ref) = self.pool_contents_ref.take() {
+            let mut pool_contents = pool_contents_ref.lock()?;
+            let conn_impl = self.conn_impl.take().unwrap();
+            pool_contents.drop_connection(conn_impl);
+            Ok(())
+        } else {
+            self.close()
+        }
+    }
+
     /// Establishes a standalone connection to the database and returns it.
     pub(crate) fn connect(config: Config) -> Result<Connection, Error> {
         let conn_impl = ConnImpl::connect(config, String::new())?;
