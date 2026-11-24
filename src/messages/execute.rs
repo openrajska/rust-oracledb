@@ -113,7 +113,13 @@ impl ExecuteMessage<'_, '_> {
             if self.parse_only {
                 options |= constants::TTC_EXEC_OPTION_DESCRIBE;
             } else {
-                if !statement.has_cursor() || statement.requires_define() {
+                // a query with autocommit comes here in place of the
+                // re-execute and fetch (see serialize()), so it fetches as
+                // many rows as that would have
+                if !statement.has_cursor()
+                    || statement.requires_define()
+                    || self.autocommit
+                {
                     num_iters = self.statement.options().prefetch_rows();
                 } else {
                     num_iters = self.statement.options().fetch_array_size();
