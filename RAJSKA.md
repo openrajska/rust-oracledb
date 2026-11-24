@@ -33,14 +33,18 @@ next, as a deliberate [upgrade](#upgrading-the-pin) (condition C17).
 |---|---|---|
 | `rajska/base` | The upstream tag plus the fork's own files only: this document, the CI workflow, the pin file and the `Cargo.lock` shipped in the published crate. No behaviour change. | Only on an upgrade |
 | `patch/<condition>-<slug>` | One patch, branched from `rajska/base`. Example: `patch/c21-autocommit`. | Only on an upgrade |
-| `rajska/integration` | `rajska/base` plus a merge of every patch that has landed in the fork. **The Extension pins a commit of this branch.** Default branch. | Never |
+| `rajska/integration` | `rajska/base` plus a merge of every patch that has landed in the fork. **The Extension pins a commit of this branch.** Default branch. | Never: a ruleset blocks force-pushes and deletion |
 | `main` | Mirror of upstream `main`, untouched. Upstream PR branches start here. | Follows upstream |
+
+Because `rajska/integration` only moves forward, every commit the Extension
+ever pinned stays reachable from it, across upgrades too. Changes to the
+fork's own files are committed on `rajska/base` and then merged into
+`rajska/integration`.
 
 Tags:
 
 - `integration-v<version>` marks the last `rajska/integration` commit built on
-  upstream `<version>`, so every revision the Extension ever pinned stays
-  reachable after an upgrade.
+  upstream `<version>`, as a readable marker for the upgrade history.
 
 ## How the Extension depends on the fork
 
@@ -123,17 +127,22 @@ side effect. It reruns every patch's test.
    upstream absorbed is dropped: delete its branch, and keep its test only if
    upstream did not take one. Force-push every remaining branch and let CI run
    the whole suite on each of them.
-5. Rebuild `rajska/integration` from the new `rajska/base` by merging every
-   remaining patch branch, in condition order. Because this branch is never
-   rewritten, do this on a fresh branch and replace `rajska/integration` only
-   once its CI is green; the old tip is already tagged in step 2.
-6. In php-oracle, bump `version = "=<new version>"` and `rev` together in one
+5. Build the next integration on a fresh branch `rajska/next` from the new
+   `rajska/base`, merging every remaining patch branch in condition order.
+   Push it and wait for CI to be green on it: that run is every remaining
+   patch's test against the new release.
+6. Move `rajska/integration` forward without rewriting it. On `rajska/next`,
+   run `git merge -s ours rajska/integration`, which records the old history
+   as a parent but keeps `rajska/next`'s files. Then fast-forward
+   `rajska/integration` to it, push, and delete `rajska/next`.
+7. In php-oracle, bump `version = "=<new version>"` and `rev` together in one
    commit, then run the Extension's conformance suite and the spike's probes
    against it.
 
-The CI guard enforces the first step: it fails when the crate version in
-`Cargo.toml` and the tag in `.rajska/upstream-tag` disagree, or when the tag is
-not an ancestor of the commit being tested.
+The CI guard keeps the pin honest. It fails when the crate version in
+`Cargo.toml` and the tag in `.rajska/upstream-tag` disagree, or when that tag
+is not an ancestor of the commit being tested. So the pin can't move by
+merging upstream `main`, only by step 3.
 
 ## Running the tests
 
