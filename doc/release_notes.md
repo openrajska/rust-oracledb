@@ -24,6 +24,13 @@
 1.  Use `debug_struct()` for `Error` so that the cause is not lost when
     debugging errors
     ([issue 76](https://github.com/oracle/rust-oracledb/issues/76)).
+1.  Added support for implicit results (cursors returned by a PL/SQL block
+    with `DBMS_SQL.RETURN_RESULT`) with
+    [ExecResult::implicit_results()](crate::ExecResult::implicit_results())
+    and
+    [ExecBatchResult::implicit_results()](crate::ExecBatchResult::implicit_results()).
+    Previously the execution failed with an unknown TTC message type 27 and
+    its OUT binds were lost.
 
 
 ## rust-oracledb 26.0.0-beta.6 (November 12, 2026)

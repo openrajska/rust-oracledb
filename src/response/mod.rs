@@ -61,6 +61,7 @@ pub(crate) struct Response {
     warning: Option<String>,
     rows: Option<Vec<DbRow>>,
     pending_values: Vec<Option<PendingDbValue>>,
+    implicit_results: Vec<CachedStatement>,
     prev_fetch_last_row: Option<DbRow>,
     bit_vector: Option<Vec<u8>>,
     num_columns: usize,
@@ -82,6 +83,7 @@ impl Response {
                 Some(PendingDbValue::Cursor(statement)) => Some(statement),
                 _ => None,
             });
+        let cursors = cursors.chain(self.implicit_results.iter_mut());
         for statement in std::iter::once(statement).chain(cursors) {
             for metadata in statement.out_metadata_mut() {
                 metadata.resolve_object_type(|identity| {
@@ -115,9 +117,15 @@ impl Response {
         self.warning = None;
         self.rows = None;
         self.pending_values.clear();
+        self.implicit_results.clear();
         self.bit_vector = None;
         self.end_of_fetch = false;
         self.flush_out_binds = false;
+    }
+
+    /// Records a cursor returned by DBMS_SQL.RETURN_RESULT.
+    pub(crate) fn add_implicit_result(&mut self, statement: CachedStatement) {
+        self.implicit_results.push(statement);
     }
 
     /// Records one pending value position while deserializing rows.
@@ -169,12 +177,15 @@ impl Response {
         }
     }
 
-    /// Cleans up any pending values. This method is called when an error takes
-    /// place during deserialization and the response cannot be returned for
-    /// further processing.
+    /// Cleans up any pending values and implicit results. This method is
+    /// called when an error takes place during deserialization and the
+    /// response cannot be returned for further processing.
     pub(crate) fn cleanup_pending_values(&mut self, client: &mut Client) {
         for value in self.pending_values.drain(..).flatten() {
             value.cleanup(client);
+        }
+        for statement in self.implicit_results.drain(..) {
+            client.return_statement(&statement);
         }
     }
 
@@ -449,6 +460,7 @@ impl Response {
             warning: None,
             rows: None,
             pending_values: Vec::new(),
+            implicit_results: Vec::new(),
             prev_fetch_last_row: None,
             bit_vector: None,
             num_columns: 0,
@@ -630,6 +642,11 @@ impl Response {
         self.num_columns = num_columns;
     }
 
+    /// Takes the cursors returned by DBMS_SQL.RETURN_RESULT.
+    pub(crate) fn take_implicit_results(&mut self) -> Vec<CachedStatement> {
+        std::mem::take(&mut self.implicit_results)
+    }
+
     /// Takes the rows from the response and returns them.
     pub(crate) fn take_rows(&mut self) -> Option<Vec<DbRow>> {
         self.rows.take()
@@ -654,6 +671,10 @@ impl Response {
             std::mem::take(&mut other_resp.pending_values);
         pending_values.append(&mut self.pending_values);
         self.pending_values = pending_values;
+        let mut implicit_results =
+            std::mem::take(&mut other_resp.implicit_results);
+        implicit_results.append(&mut self.implicit_results);
+        self.implicit_results = implicit_results;
         if let Some(error_info) = self.error_info.as_mut()
             && let Some(other_error_info) = other_resp.error_info.as_mut()
         {

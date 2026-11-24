@@ -30,6 +30,7 @@
 
 use std::sync::Arc;
 
+use crate::cursor::Cursor;
 use crate::metadata::Metadata;
 use crate::response::Response;
 use crate::row::{DbRow, Row};
@@ -44,6 +45,7 @@ pub struct ExecResult {
     out_bind_data: Option<DbRow>,
     returned_data: Option<Vec<DbRow>>,
     rows_affected: u64,
+    implicit_results: Vec<Cursor>,
 }
 
 impl ExecResult {
@@ -68,7 +70,27 @@ impl ExecResult {
             out_bind_data,
             returned_data,
             rows_affected: resp.get_rowcount(statement),
+            implicit_results: Vec::new(),
         }
+    }
+
+    /// Attaches the implicit results returned by the execution.
+    pub(crate) fn with_implicit_results(
+        mut self,
+        implicit_results: Vec<Cursor>,
+    ) -> Self {
+        self.implicit_results = implicit_results;
+        self
+    }
+
+    /// Returns the implicit results of the execution: the cursors that the
+    /// PL/SQL block returned with DBMS_SQL.RETURN_RESULT, in the order they
+    /// were returned. Their rows are fetched as they are read, and they can
+    /// be read in any order. A cursor that is dropped is closed, whether it
+    /// was read or not. This transfers ownership of the cursors to the
+    /// caller; calling it again returns an empty Vec.
+    pub fn implicit_results(&mut self) -> Vec<Cursor> {
+        std::mem::take(&mut self.implicit_results)
     }
 
     /// Returns the number of rows affected by the execution of the statement.
@@ -107,6 +129,7 @@ pub struct ExecBatchResult {
     returned_data: Option<Vec<Vec<DbRow>>>,
     num_execs: usize,
     rows_affected: u64,
+    implicit_results: Vec<Cursor>,
 }
 
 impl ExecBatchResult {
@@ -134,7 +157,26 @@ impl ExecBatchResult {
             returned_data,
             num_execs,
             rows_affected: resp.get_rowcount(statement),
+            implicit_results: Vec::new(),
         }
+    }
+
+    /// Attaches the implicit results returned by the executions.
+    pub(crate) fn with_implicit_results(
+        mut self,
+        implicit_results: Vec<Cursor>,
+    ) -> Self {
+        self.implicit_results = implicit_results;
+        self
+    }
+
+    /// Returns the implicit results of the executions: the cursors that the
+    /// PL/SQL block returned with DBMS_SQL.RETURN_RESULT, in the order they
+    /// were returned, across all executions. See
+    /// [ExecResult::implicit_results()]. This transfers ownership of the
+    /// cursors to the caller; calling it again returns an empty Vec.
+    pub fn implicit_results(&mut self) -> Vec<Cursor> {
+        std::mem::take(&mut self.implicit_results)
     }
 
     /// Returns the number of rows affected by the execution of the statement.
