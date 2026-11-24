@@ -516,10 +516,10 @@ impl CustomClientCertResolver {
     }
 
     /// Populates the certified key with the contents of the wallet defined in
-    /// the configuration, if one was defined. If the wallet does not contain a
-    /// private key, then the certificates that are contained in the wallet are
-    /// returned directly and used as part of the certificate roots used to
-    /// validate the server certificate instead.
+    /// the configuration, if one was defined. The certificates that are
+    /// contained in the wallet are used as part of the certificate roots used
+    /// to validate the server certificate and, if the wallet contains a
+    /// private key, as the certificate chain presented to the server.
     fn populate(
         &mut self,
         wallet_location: &str,
@@ -575,8 +575,15 @@ impl CustomClientCertResolver {
         }
 
         // if a private key was found, setup the certified key to pass to the
-        // server
+        // server; the certificates in the wallet are also trusted when
+        // validating the server certificate, so that a wallet holding the
+        // private CA that signed it works for mutual TLS as it does for
+        // one-way TLS (certificates that cannot be used as roots are
+        // ignored)
         if let Some(key) = private_key {
+            let root_store: &mut rustls::RootCertStore =
+                self.root_store.as_mut().unwrap();
+            root_store.add_parsable_certificates(certs.iter().cloned());
             let signing_key =
                 self.provider.key_provider.load_private_key(key)?;
             self.key = Some(Arc::new(CertifiedKey::new(certs, signing_key)));
