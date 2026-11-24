@@ -84,7 +84,8 @@ impl ReadBuffer {
 
     /// Creates and returns a new ReadBuffer struct given a series of packets.
     pub(crate) fn from_packets(packets: &[Packet]) -> ReadBuffer {
-        let mut buf = Vec::<u8>::new();
+        let size = packets.iter().map(|packet| packet.buf.len()).sum();
+        let mut buf = Vec::<u8>::with_capacity(size);
         for packet in packets {
             buf.extend_from_slice(&packet.buf);
         }
@@ -132,7 +133,20 @@ impl ReadBuffer {
         if len != constants::TTC_LONG_LENGTH_INDICATOR {
             Ok(Cow::from(self.read_bytes(len as usize)?))
         } else {
-            let mut output = Vec::<u8>::new();
+            // The chunk lengths first, so that the chunks are copied once
+            // into an allocation of their total size.
+            let start = self.pos;
+            let mut size = 0;
+            loop {
+                let num_bytes = self.read_ub4()? as usize;
+                if num_bytes == 0 {
+                    break;
+                }
+                self.read_bytes(num_bytes)?;
+                size += num_bytes;
+            }
+            self.pos = start;
+            let mut output = Vec::<u8>::with_capacity(size);
             loop {
                 let num_bytes = self.read_ub4()?;
                 if num_bytes == 0 {
