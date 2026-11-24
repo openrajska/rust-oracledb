@@ -796,12 +796,14 @@ impl Client {
                 params.slice(0, 1),
                 false,
             )?;
-            let mut final_resp = self.execute(
-                statement,
-                client_ref,
-                params.slice(1, params.num_rows() - 1),
-                false,
-            )?;
+            let mut final_resp = self
+                .execute(
+                    statement,
+                    client_ref,
+                    params.slice(1, params.num_rows() - 1),
+                    false,
+                )
+                .inspect_err(|_| initial_resp.cleanup_pending_values(self))?;
             final_resp.transfer_info(&mut initial_resp);
             Ok(final_resp)
         } else {
