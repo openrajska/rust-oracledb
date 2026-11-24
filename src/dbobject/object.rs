@@ -538,7 +538,13 @@ impl DbObjectReadBuffer<'_> {
             crate::DB_TYPE_BINARY_DOUBLE => {
                 DbValue::BinaryDouble(f64::from_buf(bytes))
             }
-            crate::DB_TYPE_BOOLEAN => DbValue::Boolean(bool::from_buf(bytes)),
+            // Inside an object image a BOOLEAN takes 4 bytes, but the server
+            // does not always write them the same way: TRUE is `00 00 00 01`
+            // when PL/SQL builds the object and `01 00 00 00` when SQL builds
+            // it (or reads it from a table). FALSE is all zeros either way.
+            crate::DB_TYPE_BOOLEAN => {
+                DbValue::Boolean(bytes.iter().any(|&byte| byte != 0))
+            }
             crate::DB_TYPE_INTERVAL_DS => {
                 DbValue::IntervalDS(crate::OracleIntervalDS::from_buf(bytes))
             }
