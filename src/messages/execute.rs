@@ -42,6 +42,7 @@ use crate::write_buffer::WriteBuffer;
 pub struct ExecuteMessage<'statement, 'params> {
     scroll_operation: bool,
     parse_only: bool,
+    define_fetch: bool,
     batch_errors: bool,
     array_dml_row_counts: bool,
     renegotiation_needed: bool,
@@ -116,7 +117,9 @@ impl ExecuteMessage<'_, '_> {
                 // a query with autocommit comes here in place of the
                 // re-execute and fetch (see serialize()), so it fetches as
                 // many rows as that would have
-                if !statement.has_cursor()
+                if self.define_fetch {
+                    num_iters = self.statement.options().fetch_array_size();
+                } else if !statement.has_cursor()
                     || statement.requires_define()
                     || self.autocommit
                 {
@@ -308,6 +311,7 @@ impl ExecuteMessage<'_, '_> {
             && !parse_only;
         ExecuteMessage {
             parse_only,
+            define_fetch: false,
             scroll_operation: false,
             batch_errors,
             array_dml_row_counts: false,
@@ -321,6 +325,24 @@ impl ExecuteMessage<'_, '_> {
             params,
         }
     }
+
+    /// Creates a message that sends the define of a cursor that the database
+    /// opened and described, such as a REF CURSOR or a nested cursor, and
+    /// fetches its first rows. Such a cursor is fetched without being
+    /// executed, so the define its LOB columns need is sent with its first
+    /// fetch instead. The define asks for the LOB prefetch size of the
+    /// statement that returned the cursor.
+    pub(crate) fn new_define_fetch(
+        statement: &mut CachedStatement,
+    ) -> ExecuteMessage<'_, '_> {
+        statement.set_lob_prefetch_size();
+        let num_fetch_columns = statement.out_metadata().len();
+        let mut message =
+            Self::new(statement, BindParameters::default(), false, false);
+        message.define_fetch = true;
+        message.num_fetch_columns = num_fetch_columns.try_into().unwrap();
+        message
+    }
 }
 
 impl Message for ExecuteMessage<'_, '_> {
@@ -332,8 +354,8 @@ impl Message for ExecuteMessage<'_, '_> {
         resp.read_bytes_with_length()?;
         self.statement.populate_from_describe_info(client, resp)?;
         // The define that follows the describe of an execution asks for the
-        // LOB prefetch size; the cursors of REF CURSORs and implicit results
-        // are fetched without a define, so their LOBs are not prefetched.
+        // LOB prefetch size; the cursors of REF CURSORs, nested cursors and
+        // implicit results ask for it with the define of their first fetch.
         self.statement.set_lob_prefetch_size();
         let num_metadata = self.statement.out_metadata().len();
         self.num_fetch_columns = num_metadata.try_into().unwrap();
@@ -439,8 +461,10 @@ impl Message for ExecuteMessage<'_, '_> {
         client: &mut Client,
         resp: &mut Response,
     ) -> Result<(), Error> {
-        self.statement.set_cursor_id(resp.get_cursor_id());
-        self.statement.set_binds_not_changed();
+        if !self.define_fetch {
+            self.statement.set_cursor_id(resp.get_cursor_id());
+            self.statement.set_binds_not_changed();
+        }
         resp.check_for_statement_error(client, self.statement)
     }
 
@@ -458,7 +482,7 @@ impl Message for ExecuteMessage<'_, '_> {
     }
 
     fn resend_needed(&self) -> bool {
-        self.statement.requires_define()
+        self.statement.requires_define() && !self.define_fetch
     }
 
     fn serialize(&self, client: &Client, buf: &mut WriteBuffer) {
