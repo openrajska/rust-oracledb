@@ -70,17 +70,43 @@ impl Statement {
     /// Gets the response to the execution of a statement. At this point binds
     /// have been checked and transformed (if needed) into the sequence
     /// required by the server.
+    ///
+    /// Implicit results returned by the execution are closed: use
+    /// [Self::get_execute_response_with_implicit_results()] to keep them.
     pub(crate) fn get_execute_response(
         &mut self,
         params: BindParameters,
         parse_only: bool,
     ) -> Result<Response, Error> {
-        self.client_ref.lock()?.execute(
+        let (response, implicit_results) = self
+            .get_execute_response_with_implicit_results(params, parse_only)?;
+        // dropping a cursor returns its statement to the client, which
+        // closes it on the next round trip
+        drop(implicit_results);
+        Ok(response)
+    }
+
+    /// Gets the response to the execution of a statement, along with the
+    /// implicit results (DBMS_SQL.RETURN_RESULT) returned by the execution,
+    /// in the order they were returned. The cursors are only created once the
+    /// client lock has been released, since dropping a cursor takes it.
+    pub(crate) fn get_execute_response_with_implicit_results(
+        &mut self,
+        params: BindParameters,
+        parse_only: bool,
+    ) -> Result<(Response, Vec<Cursor>), Error> {
+        let mut response = self.client_ref.lock()?.execute(
             &mut self.statement,
             &self.client_ref,
             params,
             parse_only,
-        )
+        )?;
+        let implicit_results = response
+            .take_implicit_results()
+            .into_iter()
+            .map(|s| Cursor::new(Statement::new(self.client_ref.clone(), s)))
+            .collect();
+        Ok((response, implicit_results))
     }
 
     /// Transfers the cached statement; the caller must return it to the client.
@@ -139,8 +165,10 @@ impl Statement {
         let binding = [params];
         let params: BindParameters = binding.as_slice().into();
         self.statement.check_binds(&params)?;
-        let mut response = self.get_execute_response(params, false)?;
-        Ok(ExecResult::new(&self.statement, &mut response))
+        let (mut response, implicit_results) =
+            self.get_execute_response_with_implicit_results(params, false)?;
+        Ok(ExecResult::new(&self.statement, &mut response)
+            .with_implicit_results(implicit_results))
     }
 
     /// Executes a SQL statement against the database multiple times in one
@@ -151,8 +179,10 @@ impl Statement {
     ) -> Result<ExecBatchResult, Error> {
         self.statement.check_binds(&params)?;
         let num_execs = params.num_rows();
-        let mut response = self.get_execute_response(params, false)?;
-        Ok(ExecBatchResult::new(&self.statement, num_execs, &mut response))
+        let (mut response, implicit_results) =
+            self.get_execute_response_with_implicit_results(params, false)?;
+        Ok(ExecBatchResult::new(&self.statement, num_execs, &mut response)
+            .with_implicit_results(implicit_results))
     }
 
     /// Executes the statement with the given named parameters and returns an
@@ -166,8 +196,10 @@ impl Statement {
         let binding = [checked_params.as_slice()];
         let params: BindParameters = binding.as_slice().into();
         self.statement.check_binds(&params)?;
-        let mut response = self.get_execute_response(params, false)?;
-        Ok(ExecResult::new(&self.statement, &mut response))
+        let (mut response, implicit_results) =
+            self.get_execute_response_with_implicit_results(params, false)?;
+        Ok(ExecResult::new(&self.statement, &mut response)
+            .with_implicit_results(implicit_results))
     }
 
     /// Returns whether or not the statement is a DDL statement.

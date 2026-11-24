@@ -799,13 +799,15 @@ impl Client {
                 false,
                 false,
             )?;
-            let mut final_resp = self.execute_once(
-                statement,
-                client_ref,
-                params.slice(1, params.num_rows() - 1),
-                false,
-                autocommit,
-            )?;
+            let mut final_resp = self
+                .execute_once(
+                    statement,
+                    client_ref,
+                    params.slice(1, params.num_rows() - 1),
+                    false,
+                    autocommit,
+                )
+                .inspect_err(|_| initial_resp.cleanup_pending_values(self))?;
             final_resp.transfer_info(&mut initial_resp);
             Ok(final_resp)
         } else {

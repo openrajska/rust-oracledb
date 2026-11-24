@@ -82,6 +82,18 @@ pub(crate) trait Message {
         Err(Error::not_implemented(feature))
     }
 
+    /// Deserializes a TTC implicit results message (DBMS_SQL.RETURN_RESULT).
+    /// Only the execute message expects one.
+    fn deserialize_implicit_results(
+        &mut self,
+        _client: &Client,
+        resp: &mut Response,
+    ) -> Result<(), Error> {
+        Err(resp.unknown_ttc_message_type(
+            constants::TTC_MSG_TYPE_IMPLICIT_RESULTSET,
+        ))
+    }
+
     /// Deserializes a TTC I/O vector message.
     fn deserialize_io_vector(
         &mut self,
@@ -167,6 +179,9 @@ pub(crate) trait Message {
             }
             constants::TTC_MSG_TYPE_END_OF_RESPONSE => Ok(()),
             constants::TTC_MSG_TYPE_ERROR => resp.read_error_info(client),
+            constants::TTC_MSG_TYPE_IMPLICIT_RESULTSET => {
+                self.deserialize_implicit_results(client, resp)
+            }
             constants::TTC_MSG_TYPE_IO_VECTOR => {
                 self.deserialize_io_vector(client, resp)
             }
