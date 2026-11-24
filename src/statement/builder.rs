@@ -66,6 +66,16 @@ impl<'sql> StatementBuilder<'sql> {
         self
     }
 
+    /// Specifies that each successful execution of the statement commits the
+    /// transaction in the same round trip as the execute, so no separate call
+    /// to Connection::commit() is needed. A failed execution commits nothing.
+    /// For a query, the commit releases any locks it takes (as with SELECT
+    /// ... FOR UPDATE) as soon as it executes.
+    pub fn autocommit(mut self) -> Self {
+        self.options.set_autocommit();
+        self
+    }
+
     /// Builds the statement from the SQL and the options.
     pub fn build(self) -> Result<Statement, Error> {
         let statement = {

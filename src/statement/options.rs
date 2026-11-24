@@ -36,6 +36,7 @@ pub(crate) struct StatementOptions {
     prefetch_rows: u32,
     fetch_array_size: u32,
     fetch_lobs: bool,
+    autocommit: bool,
     #[cfg(feature = "arrow")]
     requested_schema: Option<SchemaRef>,
     #[cfg(feature = "arrow")]
@@ -46,6 +47,12 @@ impl StatementOptions {
     #[cfg(feature = "arrow")]
     pub(crate) fn arrow_batch_size(&self) -> usize {
         self.arrow_batch_size.unwrap_or(1024)
+    }
+
+    /// Returns whether a successful execution commits the transaction in the
+    /// same round trip.
+    pub(crate) fn autocommit(&self) -> bool {
+        self.autocommit
     }
 
     /// Returns the configured fetch array size.
@@ -65,6 +72,7 @@ impl StatementOptions {
             prefetch_rows: 2,
             fetch_array_size: 100,
             fetch_lobs: false,
+            autocommit: false,
             #[cfg(feature = "arrow")]
             requested_schema: None,
             #[cfg(feature = "arrow")]
@@ -87,6 +95,12 @@ impl StatementOptions {
     #[cfg(feature = "arrow")]
     pub(crate) fn set_arrow_batch_size(&mut self, value: usize) {
         self.arrow_batch_size = Some(value);
+    }
+
+    /// Specifies that a successful execution commits the transaction in the
+    /// same round trip.
+    pub(crate) fn set_autocommit(&mut self) {
+        self.autocommit = true;
     }
 
     /// Sets the number of rows to fetch each time rows are fetched.

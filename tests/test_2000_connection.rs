@@ -317,3 +317,158 @@ fn test_2011() -> Result<(), oracledb::Error> {
     assert_eq!(row.get::<&str>(1)?, test_config.user.to_uppercase());
     Ok(())
 }
+
+/// Returns the number of round trips the session of the given connection has
+/// made, read from another session so the read itself is not counted.
+fn round_trips(
+    admin_conn: &oracledb::Connection,
+    conn: &oracledb::Connection,
+) -> Result<i64, oracledb::Error> {
+    let row = admin_conn.query_row(
+        r#"
+        select s.value
+        from v$sesstat s
+            join v$statname n on n.statistic# = s.statistic#
+        where n.name = 'SQL*Net roundtrips to/from client'
+            and s.sid = :1
+        "#,
+        &[&(conn.session_id()? as i64)],
+    )?;
+    row.get(0)
+}
+
+#[rstest]
+/// Tests that DML and a PL/SQL block built with autocommit commit in the same
+/// round trip as the execute, both on their first execution and when they are
+/// executed again from the statement cache.
+fn test_2012(
+    admin_conn: oracledb::Connection,
+    conn: oracledb::Connection,
+) -> Result<(), oracledb::Error> {
+    let observer = common::conn();
+    let _guard =
+        common::create_table(&observer, "test_2012", "id number primary key")?;
+    let statements = [
+        "insert into test_2012 values (:1)",
+        "begin insert into test_2012 values (:1); end;",
+    ];
+    let mut id = 0;
+    for sql in statements {
+        for _ in 0..2 {
+            id += 1;
+            let before = round_trips(&admin_conn, &conn)?;
+            conn.statement(sql)?.autocommit().build()?.execute(&[&id])?;
+            assert_eq!(round_trips(&admin_conn, &conn)? - before, 1);
+            let row =
+                observer.query_row("select count(*) from test_2012", &[])?;
+            assert_eq!(row.get::<i32>(0)?, id);
+        }
+    }
+    Ok(())
+}
+
+#[rstest]
+/// Tests that a statement built without autocommit does not commit, even
+/// when the same SQL was executed with autocommit before and is reused from
+/// the statement cache.
+fn test_2013(conn: oracledb::Connection) -> Result<(), oracledb::Error> {
+    let observer = common::conn();
+    let _guard =
+        common::create_table(&observer, "test_2013", "id number primary key")?;
+    let sql = "insert into test_2013 values (:1)";
+    conn.statement(sql)?.autocommit().build()?.execute(&[&1])?;
+    conn.statement(sql)?.build()?.execute(&[&2])?;
+    conn.execute(sql, &[&3])?;
+    let row = observer.query_row("select count(*) from test_2013", &[])?;
+    assert_eq!(row.get::<i32>(0)?, 1);
+    conn.commit()?;
+    let row = observer.query_row("select count(*) from test_2013", &[])?;
+    assert_eq!(row.get::<i32>(0)?, 3);
+    Ok(())
+}
+
+#[rstest]
+/// Tests that a failed execution with autocommit commits nothing, in a batch
+/// of DML and in a batch of a PL/SQL block executed for the first time
+/// (where the first row is executed on its own), and that a successful batch
+/// of a PL/SQL block commits every row.
+fn test_2014(conn: oracledb::Connection) -> Result<(), oracledb::Error> {
+    let observer = common::conn();
+    let _guard =
+        common::create_table(&observer, "test_2014", "id number primary key")?;
+    let count = || -> Result<i32, oracledb::Error> {
+        observer.query_row("select count(*) from test_2014", &[])?.get(0)
+    };
+    let duplicate: &[&[&dyn oracledb::ToDbValue]] = &[&[&1], &[&2], &[&1]];
+    for sql in [
+        "insert into test_2014 values (:1)",
+        "begin insert into test_2014 values (:1); end;",
+    ] {
+        let error = conn
+            .statement(sql)?
+            .exclude_from_cache()
+            .autocommit()
+            .build()?
+            .execute_batch(duplicate.into())
+            .expect_err("a duplicate primary key must fail the batch");
+        assert_eq!(error.db_error_code(), Some(1));
+        assert_eq!(count()?, 0);
+        conn.rollback()?;
+    }
+    conn.statement("begin insert into test_2014 values (:1); end;")?
+        .exclude_from_cache()
+        .autocommit()
+        .build()?
+        .execute_batch(oracledb::BindParameters::Slice(&[&[&1], &[&2]]))?;
+    assert_eq!(count()?, 2);
+    Ok(())
+}
+
+#[rstest]
+/// Tests that a query executed with autocommit returns its first rows and
+/// commits in the same round trip, so the locks taken by SELECT ... FOR
+/// UPDATE are released at once, both on its first execution and when it is
+/// executed again from the statement cache; fetching more rows after that
+/// commit fails with ORA-01002.
+fn test_2015(
+    admin_conn: oracledb::Connection,
+    conn: oracledb::Connection,
+) -> Result<(), oracledb::Error> {
+    let observer = common::conn();
+    let _guard =
+        common::create_table(&observer, "test_2015", "id number primary key")?;
+    observer.execute("insert into test_2015 values (1)", &[])?;
+    observer.execute("insert into test_2015 values (2)", &[])?;
+    observer.commit()?;
+    let sql = "select id from test_2015 where id = :1 for update";
+    let lock = "select id from test_2015 where id = 1 for update nowait";
+    for _ in 0..2 {
+        let before = round_trips(&admin_conn, &conn)?;
+        let row =
+            conn.statement(sql)?.autocommit().build()?.query_row(&[&1])?;
+        assert_eq!(round_trips(&admin_conn, &conn)? - before, 1);
+        assert_eq!(row.get::<i32>(0)?, 1);
+        observer.query_row(lock, &[])?;
+        observer.rollback()?;
+    }
+
+    let mut cursor = conn
+        .statement("select id from test_2015 order by id for update")?
+        .prefetch_rows(1)
+        .fetch_array_size(1)
+        .autocommit()
+        .build()?
+        .query(&[])?;
+    assert_eq!(cursor.next().unwrap()?.get::<i32>(0)?, 1);
+    let error = cursor.next().unwrap().expect_err("the fetch must fail");
+    assert_eq!(error.db_error_code(), Some(1002));
+    drop(cursor);
+
+    conn.statement(sql)?.build()?.query_row(&[&1])?;
+    let error = observer
+        .query_row(lock, &[])
+        .expect_err("the row must stay locked without autocommit");
+    assert_eq!(error.db_error_code(), Some(54));
+    conn.rollback()?;
+    Ok(())
+}
