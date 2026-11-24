@@ -317,10 +317,12 @@ impl ExecuteMessage<'_, '_> {
     /// opened and described, such as a REF CURSOR or a nested cursor, and
     /// fetches its first rows. Such a cursor is fetched without being
     /// executed, so the define its LOB columns need is sent with its first
-    /// fetch instead.
+    /// fetch instead. The define asks for the LOB prefetch size of the
+    /// statement that returned the cursor.
     pub(crate) fn new_define_fetch(
         statement: &mut CachedStatement,
     ) -> ExecuteMessage<'_, '_> {
+        statement.set_lob_prefetch_size();
         let num_fetch_columns = statement.out_metadata().len();
         let mut message =
             Self::new(statement, BindParameters::default(), false);
@@ -339,8 +341,8 @@ impl Message for ExecuteMessage<'_, '_> {
         resp.read_bytes_with_length()?;
         self.statement.populate_from_describe_info(client, resp)?;
         // The define that follows the describe of an execution asks for the
-        // LOB prefetch size; the cursors of REF CURSORs and implicit results
-        // are fetched without a define, so their LOBs are not prefetched.
+        // LOB prefetch size; the cursors of REF CURSORs, nested cursors and
+        // implicit results ask for it with the define of their first fetch.
         self.statement.set_lob_prefetch_size();
         let num_metadata = self.statement.out_metadata().len();
         self.num_fetch_columns = num_metadata.try_into().unwrap();

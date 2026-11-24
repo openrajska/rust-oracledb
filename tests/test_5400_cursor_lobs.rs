@@ -216,6 +216,22 @@ fn nested_cursor_values(
     values_of(cursor, fetch_lobs)
 }
 
+/// Returns the values of the rows of the query, fetched through an implicit
+/// result returned by a PL/SQL block.
+fn implicit_result_values(
+    conn: &oracledb::Connection,
+    fetch_lobs: bool,
+) -> Result<Vec<Values>, oracledb::Error> {
+    let sql = format!(
+        "declare c sys_refcursor; \
+         begin open c for {QUERY}; dbms_sql.return_result(c); end;"
+    );
+    let mut result = statement(conn, &sql, fetch_lobs)?.execute(&[])?;
+    let mut cursors = result.implicit_results();
+    assert_eq!(cursors.len(), 1);
+    values_of(cursors.remove(0), fetch_lobs)
+}
+
 #[rstest]
 /// Tests that CLOB, NCLOB and BLOB columns of a REF CURSOR are fetched as LOB
 /// locators, like those of a query.
@@ -287,54 +303,76 @@ fn round_trips(
 
 /// Opens a REF CURSOR for the query, with the given fetch array size, and
 /// returns the number of rows it has and the number of round trips that
-/// fetching them took.
+/// fetching them took. With `implicit`, the cursor is an implicit result
+/// instead.
 fn fetch_round_trips(
     conn: &oracledb::Connection,
     admin_conn: &oracledb::Connection,
     query: &str,
     fetch_array_size: u32,
+    implicit: bool,
 ) -> Result<(usize, i64), oracledb::Error> {
     let sid = sid(conn)?;
-    let mut result = conn
-        .statement(&format!("begin open :cursor for {query}; end;"))?
+    let sql = if implicit {
+        format!(
+            "declare c sys_refcursor; \
+             begin open c for {query}; dbms_sql.return_result(c); end;"
+        )
+    } else {
+        format!("begin open :cursor for {query}; end;")
+    };
+    let mut statement = conn
+        .statement(&sql)?
         .fetch_array_size(fetch_array_size)
         .fetch_lobs()
-        .build()?
-        .execute_named(&[("cursor", &oracledb::DB_TYPE_CURSOR)])?;
-    let cursor: oracledb::Cursor = result.out_bind_data().take("cursor")?;
+        .build()?;
+    let cursor: oracledb::Cursor = if implicit {
+        statement.execute(&[])?.implicit_results().remove(0)
+    } else {
+        statement
+            .execute_named(&[("cursor", &oracledb::DB_TYPE_CURSOR)])?
+            .out_bind_data()
+            .take("cursor")?
+    };
     let before = round_trips(admin_conn, &sid)?;
     let num_rows = cursor.collect::<Result<Vec<_>, _>>()?.len();
     Ok((num_rows, round_trips(admin_conn, &sid)? - before))
 }
 
 #[rstest]
-/// Tests that the define sent with the first fetch of a REF CURSOR with LOB
-/// columns costs no round trip: its rows take as many round trips as those
-/// of a REF CURSOR without LOB columns.
+/// Tests that the define sent with the first fetch of a REF CURSOR or an
+/// implicit result with LOB columns costs no round trip: its rows take as
+/// many round trips as those of one without LOB columns.
 fn test_5404(
     conn: oracledb::Connection,
     admin_conn: oracledb::Connection,
 ) -> Result<(), oracledb::Error> {
     let _guard = create_table(&conn)?;
-    for filter in ["", "where id < 0"] {
-        let with_lobs = format!("select id, c, n, b from test_5400 {filter}");
-        let without_lobs = format!("select id from test_5400 {filter}");
-        for fetch_array_size in [1, 3, 100] {
-            assert_eq!(
-                fetch_round_trips(
-                    &conn,
-                    &admin_conn,
-                    &with_lobs,
-                    fetch_array_size
-                )?,
-                fetch_round_trips(
-                    &conn,
-                    &admin_conn,
-                    &without_lobs,
-                    fetch_array_size
-                )?,
-                "{with_lobs} with fetch array size {fetch_array_size}"
-            );
+    for implicit in [false, true] {
+        for filter in ["", "where id < 0"] {
+            let with_lobs =
+                format!("select id, c, n, b from test_5400 {filter}");
+            let without_lobs = format!("select id from test_5400 {filter}");
+            for size in [1, 3, 100] {
+                assert_eq!(
+                    fetch_round_trips(
+                        &conn,
+                        &admin_conn,
+                        &with_lobs,
+                        size,
+                        implicit
+                    )?,
+                    fetch_round_trips(
+                        &conn,
+                        &admin_conn,
+                        &without_lobs,
+                        size,
+                        implicit
+                    )?,
+                    "{with_lobs} (implicit: {implicit}), fetch array size \
+                     {size}"
+                );
+            }
         }
     }
     Ok(())
@@ -359,5 +397,90 @@ fn test_5405(conn: oracledb::Connection) -> Result<(), oracledb::Error> {
         .map(|row| row?.get(0))
         .collect::<Result<Vec<oracledb::JsonValue>, _>>()?;
     assert_eq!(values, vec![expected]);
+    Ok(())
+}
+
+#[rstest]
+/// Tests that CLOB, NCLOB and BLOB columns of an implicit result are fetched
+/// as LOB locators, like those of a query.
+fn test_5406(conn: oracledb::Connection) -> Result<(), oracledb::Error> {
+    let _guard = create_table(&conn)?;
+    assert_eq!(implicit_result_values(&conn, true)?, expected_values());
+    Ok(())
+}
+
+#[rstest]
+/// Tests that CLOB, NCLOB and BLOB columns of an implicit result are fetched
+/// as strings and bytes, like those of a query, when LOBs are not fetched as
+/// locators.
+fn test_5407(conn: oracledb::Connection) -> Result<(), oracledb::Error> {
+    let _guard = create_table(&conn)?;
+    let expected = query_values(&conn, false)?;
+    assert_eq!(implicit_result_values(&conn, false)?, expected);
+    Ok(())
+}
+
+/// The LOB prefetch size used by the tests of prefetched LOBs: more than the
+/// multibyte text, less than the large value.
+const PREFETCH: u32 = 1000;
+
+/// Opens the cursor of the given kind (REF CURSOR, nested cursor or implicit
+/// result) for the query, from a statement that fetches LOBs as locators
+/// with the LOB prefetch size.
+fn prefetching_cursor(
+    conn: &oracledb::Connection,
+    kind: &str,
+) -> Result<oracledb::Cursor, oracledb::Error> {
+    let sql = match kind {
+        "ref" => format!("begin open :cursor for {QUERY}; end;"),
+        "nested" => format!("select cursor({QUERY}) from dual"),
+        _ => format!(
+            "declare c sys_refcursor; \
+             begin open c for {QUERY}; dbms_sql.return_result(c); end;"
+        ),
+    };
+    let mut statement = conn
+        .statement(&sql)?
+        .fetch_array_size(3)
+        .fetch_lobs()
+        .lob_prefetch_size(PREFETCH)
+        .build()?;
+    match kind {
+        "ref" => statement
+            .execute_named(&[("cursor", &oracledb::DB_TYPE_CURSOR)])?
+            .out_bind_data()
+            .take("cursor"),
+        "nested" => statement.query_row(&[])?.take(0),
+        _ => Ok(statement.execute(&[])?.implicit_results().remove(0)),
+    }
+}
+
+#[rstest]
+/// Tests that the LOB prefetch size of the statement that returned a REF
+/// CURSOR, a nested cursor or an implicit result applies to its LOB columns:
+/// a LOB within that size is read without any round trip, and every value
+/// still reads back exactly.
+fn test_5408(
+    conn: oracledb::Connection,
+    admin_conn: oracledb::Connection,
+) -> Result<(), oracledb::Error> {
+    let _guard = create_table(&conn)?;
+    let sid = sid(&conn)?;
+    let expected = expected_values();
+    for kind in ["ref", "nested", "implicit"] {
+        let mut cursor = prefetching_cursor(&conn, kind)?;
+        let mut row = cursor.next().unwrap()?;
+        let before = round_trips(&admin_conn, &sid)?;
+        let values = (
+            row.get(0)?,
+            text_of(&mut row, 1)?,
+            text_of(&mut row, 2)?,
+            bytes_of(&mut row, 3)?,
+        );
+        let trips = round_trips(&admin_conn, &sid)? - before;
+        assert_eq!(values, expected[0], "{kind}");
+        assert_eq!(trips, 0, "{kind}: round trips of the reads");
+        assert_eq!(values_of(cursor, true)?, expected[1..], "{kind}");
+    }
     Ok(())
 }
