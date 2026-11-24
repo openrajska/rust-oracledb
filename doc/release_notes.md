@@ -24,6 +24,10 @@
 1.  Use `debug_struct()` for `Error` so that the cause is not lost when
     debugging errors
     ([issue 76](https://github.com/oracle/rust-oracledb/issues/76)).
+1.  Fixed bug when a wallet (ewallet.pem) holding a private key also holds the
+    certificate of a private certificate authority: that certificate is now
+    trusted when validating the server certificate, so mutual TLS works with
+    such a wallet as one-way TLS already did.
 
 
 ## rust-oracledb 26.0.0-beta.6 (November 12, 2026)
