@@ -122,14 +122,19 @@ const SQL_GET_METADATA_FOR_NAME: &str = r#"
             :version, :tds, t_Instantiable, t_SuperTypeOwner,
             t_SuperTypeName, :attrs_rc, t_SubTypeRefCursor);
         :package_name := null;
+        :is_subtype := case when t_SuperTypeName is null then 0 else 1 end;
+        :is_final := 1;
         if substr(:full_name, length(:full_name) - 7) = '%ROWTYPE' then
             t_Pos := instr(:full_name, '.');
             :schema := substr(:full_name, 1, t_Pos - 1);
             :name := substr(:full_name, t_Pos + 1);
         else
             begin
-                select owner, type_name
-                into :schema, :name
+                select
+                    owner,
+                    type_name,
+                    case when final = 'NO' then 0 else 1 end
+                into :schema, :name, :is_final
                 from all_types
                 where type_oid = :oid;
             exception
@@ -176,6 +181,8 @@ struct DbObjectTypeLookup {
     tds: Vec<u8>,
     version: u16,
     identity: DbObjectTypeIdentity,
+    is_final: bool,
+    is_subtype: bool,
 }
 
 struct DbObjectParsedTds {
@@ -397,6 +404,8 @@ fn lookup_type(
             ("package_name", &crate::DB_TYPE_VARCHAR as &dyn ToDbValue),
             ("schema", &crate::DB_TYPE_VARCHAR as &dyn ToDbValue),
             ("name", &crate::DB_TYPE_VARCHAR as &dyn ToDbValue),
+            ("is_final", &crate::DB_TYPE_BINARY_INTEGER as &dyn ToDbValue),
+            ("is_subtype", &crate::DB_TYPE_BINARY_INTEGER as &dyn ToDbValue),
         ];
         let checked_params = statement.check_named_binds(&named_params)?;
         let binding = [checked_params.as_slice()];
@@ -416,6 +425,8 @@ fn lookup_type(
         let package_name: Option<String> = values.take("package_name")?;
         let schema: Option<String> = values.take("schema")?;
         let name: Option<String> = values.take("name")?;
+        let is_final: Option<i32> = values.take("is_final")?;
+        let is_subtype: Option<i32> = values.take("is_subtype")?;
         if return_value != 0 || name.is_none() || schema.is_none() {
             return Err(Error::invalid_db_object_type_name(full_name));
         }
@@ -446,6 +457,8 @@ fn lookup_type(
             tds: tds.unwrap_or_default(),
             version: version.unwrap_or_default(),
             identity,
+            is_final: is_final != Some(0),
+            is_subtype: is_subtype == Some(1),
         })
     })();
     response.cleanup_pending_values(client);
@@ -778,6 +791,8 @@ impl DbObjectTypeCache {
             oid: lookup.oid,
             version: lookup.version,
             collection_type,
+            is_final: lookup.is_final,
+            is_subtype: lookup.is_subtype,
         })?;
         Ok(())
     }

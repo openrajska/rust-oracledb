@@ -144,6 +144,8 @@ instead of the mouse.
 
    5.11 [Binding with a Declared Type and Size](#binddeclared)
 
+   5.12 [Binding Objects and Collections](#bindobjects)
+
 6. [Executing Batch Statements and Bulk Loading](#batchstmnt)
 
    6.1 [Batch Statement Execution](#batchstmntexec)

@@ -28,6 +28,9 @@
 // Defines the structure representing bind information.
 //-----------------------------------------------------------------------------
 
+use std::sync::Arc;
+
+use crate::DbObjectType;
 use crate::constants;
 use crate::db_type::DbType;
 use crate::error::Error;
@@ -52,11 +55,29 @@ impl BindInfo {
         replace: bool,
         desired_type: &'static DbType,
         desired_max_size: usize,
+        desired_object_type: Option<Arc<DbObjectType>>,
         binds_changed: &mut bool,
     ) -> Result<(), Error> {
+        // without its named type an object bind is a malformed packet that
+        // the server rejects (ORA-03137) and eventually drops the session for
+        if desired_type == crate::DB_TYPE_OBJECT
+            && desired_object_type.is_none()
+        {
+            return Err(Error::missing_db_object_type(&self.name));
+        }
         let mut matches: bool = false;
         if let Some(metadata) = self.metadata.as_ref() {
-            if metadata.db_type() == desired_type {
+            let same_object_type = match (
+                metadata.object_type().ok().flatten(),
+                desired_object_type.as_ref(),
+            ) {
+                (Some(current), Some(desired)) => {
+                    current.fqn() == desired.fqn()
+                }
+                (None, None) => true,
+                _ => false,
+            };
+            if metadata.db_type() == desired_type && same_object_type {
                 matches = metadata.max_size() as usize >= desired_max_size;
             } else if !replace {
                 return Err(Error::different_types(
@@ -76,6 +97,9 @@ impl BindInfo {
             );
             if self.is_return_bind {
                 metadata.set_is_array(true);
+            }
+            if let Some(object_type) = desired_object_type {
+                metadata.set_object_type(object_type);
             }
             self.metadata = Some(metadata);
         }

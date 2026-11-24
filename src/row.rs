@@ -107,6 +107,16 @@ impl DbRow {
         Self { column_values }
     }
 
+    /// Returns the values of the row.
+    pub(crate) fn values(&self) -> &[Option<DbValue>] {
+        &self.column_values
+    }
+
+    /// Returns the values of the row for modification.
+    pub(crate) fn values_mut(&mut self) -> &mut Vec<Option<DbValue>> {
+        &mut self.column_values
+    }
+
     /// Tranforms all the elements in the row into the requested type using
     /// owned values.
     pub(crate) fn transform_owned<'a, T>(self) -> Result<Vec<T>, Error>
@@ -203,6 +213,16 @@ impl Row {
     /// Returns column information for the row.
     pub fn columns(&self) -> &[Metadata] {
         &self.column_info
+    }
+
+    /// Returns the values of the row.
+    pub(crate) fn db_row(&self) -> &DbRow {
+        &self.column_values
+    }
+
+    /// Returns the values of the row for modification.
+    pub(crate) fn db_row_mut(&mut self) -> &mut DbRow {
+        &mut self.column_values
     }
 
     /// Returns the value at the given column index, converted to the requested

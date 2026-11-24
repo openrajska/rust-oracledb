@@ -109,6 +109,7 @@ impl BindParameters<'_> {
                             first_row,
                             value.db_type(),
                             value.max_size(),
+                            value.db_object_type(),
                             binds_changed,
                         )?;
                     }
@@ -133,6 +134,7 @@ impl BindParameters<'_> {
                         true,
                         db_type,
                         max_size,
+                        None,
                         binds_changed,
                     )?;
                 }

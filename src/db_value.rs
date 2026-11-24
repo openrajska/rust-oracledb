@@ -622,6 +622,12 @@ pub trait ToDbValue: ToBuf + Send + Sync {
     fn max_size(&self) -> usize {
         0
     }
+
+    /// Returns the named type of an object or collection bind. A bind whose
+    /// db_type() is DB_TYPE_OBJECT must return Some.
+    fn db_object_type(&self) -> Option<std::sync::Arc<crate::DbObjectType>> {
+        None
+    }
 }
 
 impl ToDbValue for String {
@@ -900,5 +906,9 @@ impl<T: ToDbValue> ToDbValue for BindValue<T> {
 
     fn max_size(&self) -> usize {
         self.max_size.max(self.value.max_size())
+    }
+
+    fn db_object_type(&self) -> Option<std::sync::Arc<crate::DbObjectType>> {
+        self.value.db_object_type()
     }
 }
