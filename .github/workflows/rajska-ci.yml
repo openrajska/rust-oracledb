@@ -33,6 +33,9 @@ jobs:
           ORACLE_PASSWORD: oracle
         ports:
           - 1521:1521
+          # The TCPS listeners .rajska/tls/listeners.sh starts.
+          - 2484:2484
+          - 2485:2485
         options: >-
           --health-cmd healthcheck.sh
           --health-interval 10s
@@ -49,6 +52,11 @@ jobs:
       RSO_TEST_MAIN_PASSWORD: rsotest
       RSO_TEST_PROXY_PASSWORD: rsotestproxy
       RSO_TEST_DIRECTORY_NAME: RSO_TEST_DIR
+      # The TLS tests (.rajska/tls): one-way TLS and mTLS, both through a
+      # private CA.
+      RSO_TEST_TLS_CONNECT_STRING: tcps://localhost:2484/FREEPDB1
+      RSO_TEST_MTLS_CONNECT_STRING: tcps://localhost:2485/FREEPDB1
+      RSO_TEST_TLS_WALLETS: ${{ github.workspace }}/.rajska/tls/client
     steps:
       - uses: actions/checkout@v5
         with:
@@ -79,6 +87,11 @@ jobs:
           docker exec "${{ job.services.oracle.id }}" bash -c \
             "echo \"create or replace directory $RSO_TEST_DIRECTORY_NAME as '/tmp';\" \
              | sqlplus -s -L sys/oracle@//localhost/FREEPDB1 as sysdba"
+
+      - name: Start the TCPS listeners
+        run: |
+          docker cp .rajska/tls "${{ job.services.oracle.id }}:/tmp/rajska-tls-src"
+          docker exec "${{ job.services.oracle.id }}" bash /tmp/rajska-tls-src/listeners.sh
 
       - name: Create the test schema
         run: cargo run --locked --bin create_test_schema
