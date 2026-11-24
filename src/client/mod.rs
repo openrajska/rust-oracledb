@@ -232,8 +232,8 @@ impl Client {
         }
         message.post_deserialize(self, response)?;
         self.process_call_status(response.call_status());
-        if let Some(warning) = response.take_warning() {
-            self.last_warning = Some(warning);
+        if let Some(warning) = response.warning() {
+            self.last_warning = Some(warning.to_string());
         }
         Ok(())
     }
