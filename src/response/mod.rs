@@ -146,7 +146,8 @@ impl Response {
     /// Checks to see if any error has taken place after executing a statement
     /// or fetching rows from a cursor, and if so, returns it. The error "no
     /// data found" when found for a query is ignored: the end of fetch
-    /// marker is set and the cursor is closed instead.
+    /// marker is set instead, and the cursor of a query with a column needing
+    /// a define (and no cursor column) is closed.
     pub(crate) fn check_for_statement_error(
         &mut self,
         client: &mut Client,
@@ -157,10 +158,20 @@ impl Response {
                 && db_error.code() == constants::DB_ERR_NUM_NO_DATA_FOUND
             {
                 self.end_of_fetch = true;
-                // a cursor kept open for the next execute of the statement
-                // fails it with ORA-01002 once another session invalidates
-                // it (oracle/rust-oracledb#106)
-                client.close_cursor(statement);
+                // a cursor kept open for the next execute of a query with a
+                // column needing a define fails it with ORA-01002 once
+                // another session invalidates it (oracle/rust-oracledb#106);
+                // a query with cursor columns keeps it, as its nested cursors
+                // are read after its end
+                // (no_prefetch marks a query with a column needing a define)
+                if statement.no_prefetch()
+                    && !statement.out_metadata().iter().any(|column| {
+                        column.db_type().ora_type_num
+                            == constants::ORA_TYPE_NUM_CURSOR
+                    })
+                {
+                    client.close_cursor(statement);
+                }
                 Ok(())
             } else {
                 if db_error.should_close_cursor() {
