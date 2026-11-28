@@ -30,7 +30,7 @@ use std::io::Read;
 
 mod common;
 
-use common::conn;
+use common::{admin_conn, conn};
 use rstest::*;
 
 #[rstest]
@@ -950,6 +950,55 @@ fn test_2734(conn: oracledb::Connection) -> Result<(), oracledb::Error> {
             let row = statement.query_row_named(&[("value", &value)])?;
             assert_eq!(row.get::<String>(0)?.len(), length, "{sql}");
         }
+    }
+    Ok(())
+}
+
+#[rstest]
+/// Tests re-executing cached queries that select a column needing a define,
+/// after another session invalidated their cursors: each still returns all
+/// of its rows (oracle/rust-oracledb#106).
+fn test_2735(
+    admin_conn: oracledb::Connection,
+    conn: oracledb::Connection,
+) -> Result<(), oracledb::Error> {
+    let _guard = common::create_table(
+        &conn,
+        "test_2735",
+        "id number primary key, text clob",
+    )?;
+    conn.execute(
+        "insert into test_2735 select level, to_clob(level) from dual \
+         connect by level <= 300",
+        &[],
+    )?;
+    conn.commit()?;
+    let count = |sql: &str| -> Result<usize, oracledb::Error> {
+        let mut rows = 0;
+        for row in conn.statement(sql)?.build()?.query(&[])? {
+            row?;
+            rows += 1;
+        }
+        Ok(rows)
+    };
+    let queries = [
+        ("select * from test_2735 where 1 = 0", 0),
+        ("select * from test_2735 where id = 1", 1),
+        ("select * from test_2735", 300),
+    ];
+    for (sql, expected) in queries {
+        assert_eq!(count(sql)?, expected, "{sql}");
+    }
+    let owner = oracledb::get_test_config().user.to_uppercase();
+    admin_conn.execute(
+        &format!(
+            "begin dbms_stats.gather_table_stats('{owner}', 'TEST_2735', \
+             no_invalidate => false); end;"
+        ),
+        &[],
+    )?;
+    for (sql, expected) in queries {
+        assert_eq!(count(sql)?, expected, "{sql} after invalidation");
     }
     Ok(())
 }
